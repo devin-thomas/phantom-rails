@@ -1,6 +1,6 @@
 # PHR-014 — Executable API reference
 
-**Status:** Not started  
+**Status:** Complete  
 **Lane:** Core engineering / qualification  
 **Dependencies:** PHR-010, PHR-011, PHR-012, PHR-013
 
@@ -11,15 +11,15 @@ Provide a self-contained documentation route that exercises the actual read-only
 ## Scope
 
 - OpenAPI 3.1 spec with list/detail/provenance/meta/health, request/response schemas, 400/404/409/410/503 examples and documented ranking/cursor semantics.
-- - Bundled Swagger-like interactive explorer under `/docs` and `/openapi.json` served locally without CDN.
-- - Contract tests bind Rails routes and schema to docs, with no publish-time write/auth console.
+- Bundled Swagger-like interactive explorer under `/docs` and `/openapi.json` served locally without CDN.
+- Contract tests bind Rails routes and schema to docs, with no publish-time write/auth console.
 
 ## Acceptance Criteria
 
-- [ ] From clean local Compose, `/docs` loads without third-party network and executes `GET /api/v1/postings`.
-- [ ] Validator accepts OpenAPI 3.1 schema and examples; route parity/known error contract tests pass.
-- [ ] Docs clearly identify synthetic versus historical and explain optional external integration not part of read API.
-- [ ] No write endpoint is advertised or silently reachable.
+- [x] From clean local Compose, `/docs` loads without third-party network and executes `GET /api/v1/postings`.
+- [x] Validator accepts OpenAPI 3.1 schema and examples; route parity/known error contract tests pass.
+- [x] Docs clearly identify synthetic versus historical and explain optional external integration not part of read API.
+- [x] No write endpoint is advertised or silently reachable.
 
 ## Test / Evidence
 

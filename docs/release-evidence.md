@@ -247,3 +247,20 @@
   bin/rails test test/serializers/provenance_serializer_test.rb
   2 runs, 22 assertions, 0 failures, 0 errors, 0 skips
   ```
+
+### PHR-014 — OpenAPI 3.1 Specification and Self-Contained Interactive Documentation
+- **Specification & Controller:**
+  - `public/openapi.json` (OpenAPI 3.1)
+  - `public/docs.html` (bundled accessible interactive explorer)
+  - `app/controllers/docs_controller.rb`
+- **Verified Behaviors:**
+  - Contract Parity: 100% of routes declared in `openapi.json` correspond to verified Rails routes with full parameter and response schemas.
+  - Zero External Dependencies: `/docs` runs with zero CDN scripts, external fonts, or analytics tracking; completely self-contained.
+  - Interactive Live Execution: Interactive runner submits parameterized requests directly to local `/api/v1` routes and displays formatted live responses.
+  - Pure Read-Only Surface: OpenAPI specification advertises zero write or mutation methods; no write routes exist or are reachable.
+  - Live Connectivity: `GET /docs` and `GET /openapi.json` verified with HTTP 200 via curl and automated test suite.
+- **Test Output:**
+  ```text
+  bin/rails test test/controllers/docs_controller_test.rb
+  2 runs, 27 assertions, 0 failures, 0 errors, 0 skips
+  ```

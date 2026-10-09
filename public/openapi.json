@@ -1,0 +1,474 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Phantom Rails Job Search & Provenance API",
+    "version": "1.0.0",
+    "description": "Deterministic, read-only search and provenance API for job postings built with Ruby on Rails 8.1 and PostgreSQL 16. Operates strictly over active approved corpus projections with conservative identity reconciliation and zero secret/PII data exposure."
+  },
+  "servers": [
+    {
+      "url": "/",
+      "description": "Local server"
+    }
+  ],
+  "paths": {
+    "/api/v1/health": {
+      "get": {
+        "summary": "System Health & Readiness",
+        "description": "Returns operational status of database connectivity and active approved release state.",
+        "responses": {
+          "200": {
+            "description": "System is healthy and active release is available",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Database connectivity failed or system is degraded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/meta": {
+      "get": {
+        "summary": "Corpus Metadata",
+        "description": "Returns active corpus version, stable cryptographic corpus revision, data origin breakdown (historical sanitized vs adversarial synthetic), available search filters and sorts.",
+        "responses": {
+          "200": {
+            "description": "Corpus metadata",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MetaResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/postings": {
+      "get": {
+        "summary": "Search & Filter Canonical Postings",
+        "description": "Searches active approved job postings using weighted full-text ranking (title +8, company +5, location +3, excerpt +1), compound filters, and HMAC-signed keyset cursors.",
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "description": "UTF-8 keyword search query (max 120 chars, max 8 meaningful lexemes). All lexemes must match.",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 120
+            }
+          },
+          {
+            "name": "company",
+            "in": "query",
+            "description": "Case-insensitive exact normalized company name.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "location",
+            "in": "query",
+            "description": "Case-insensitive normalized city/state location.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "remote_type",
+            "in": "query",
+            "description": "Remote arrangement filter.",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": ["onsite", "hybrid", "remote", "unknown"]
+            }
+          },
+          {
+            "name": "employment_type",
+            "in": "query",
+            "description": "Employment type filter.",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": ["full_time", "part_time", "contract", "internship", "temporary", "unknown"]
+            }
+          },
+          {
+            "name": "min_salary_usd",
+            "in": "query",
+            "description": "Annual minimum compensation in USD. Excludes non-annualized hourly or unknown pay.",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "sort",
+            "in": "query",
+            "description": "Sort order. 'relevance' requires q; 'newest' orders by last_observed_at DESC.",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": ["relevance", "newest", "company", "title"],
+              "default": "newest"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Number of results per page (1 to 50).",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 50,
+              "default": 20
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "description": "Opaque server-signed keyset pagination token.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Paginated posting results",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PostingListResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid parameter, invalid cursor, or cursor query mismatch",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Stale cursor due to corpus revision update",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "Cursor expired (TTL elapsed)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Database service unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/postings/{id}": {
+      "get": {
+        "summary": "Posting Detail",
+        "description": "Retrieves normalized details for an active approved posting by its public ID.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "Public posting identifier (e.g. post_001)",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Posting details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PostingDetailResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Posting not found or not in active approved corpus",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/postings/{id}/provenance": {
+      "get": {
+        "summary": "Reconciliation Provenance",
+        "description": "Inspects contributing source mentions, field selection rationales, discarded/overridden alternatives, and potential duplicate ambiguity links.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "Public posting identifier",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Provenance audit explanation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProvenanceResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Posting not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Salary": {
+        "type": "object",
+        "properties": {
+          "min": { "type": "number", "nullable": true },
+          "max": { "type": "number", "nullable": true },
+          "currency": { "type": "string", "example": "USD" },
+          "period": { "type": "string", "example": "year" }
+        }
+      },
+      "Posting": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "example": "post_example_a1" },
+          "title": { "type": "string", "example": "Technical Support Engineer" },
+          "company": { "type": "string", "example": "Example Systems" },
+          "location": { "type": "string", "example": "Austin, TX" },
+          "remote_type": { "type": "string", "enum": ["onsite", "hybrid", "remote", "unknown"] },
+          "employment_type": { "type": "string", "enum": ["full_time", "part_time", "contract", "internship", "temporary", "unknown"] },
+          "salary": { "$ref": "#/components/schemas/Salary" },
+          "summary_excerpt": { "type": "string", "nullable": true },
+          "job_url": { "type": "string", "nullable": true },
+          "relevance_score": { "type": "integer", "nullable": true, "example": 16 },
+          "origin_class": { "type": "string", "example": "sanitized_historical" },
+          "potential_duplicate": { "type": "boolean", "example": false },
+          "provenance_url": { "type": "string", "example": "/api/v1/postings/post_example_a1/provenance" },
+          "first_observed_at": { "type": "string", "format": "date-time" },
+          "last_observed_at": { "type": "string", "format": "date-time" }
+        },
+        "required": ["id", "title", "company", "location", "origin_class", "potential_duplicate", "provenance_url"]
+      },
+      "PostingListResponse": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/Posting" }
+          },
+          "page": {
+            "type": "object",
+            "properties": {
+              "limit": { "type": "integer", "example": 20 },
+              "next_cursor": { "type": "string", "nullable": true },
+              "corpus_revision": { "type": "string", "example": "rev_abcdef123456" }
+            },
+            "required": ["limit", "corpus_revision"]
+          },
+          "meta": {
+            "type": "object",
+            "properties": {
+              "sort": { "type": "string", "example": "relevance" },
+              "query": { "type": "string", "nullable": true, "example": "technical support" }
+            },
+            "required": ["sort"]
+          }
+        },
+        "required": ["data", "page", "meta"]
+      },
+      "PostingDetailResponse": {
+        "type": "object",
+        "properties": {
+          "data": { "$ref": "#/components/schemas/Posting" }
+        },
+        "required": ["data"]
+      },
+      "ProvenanceResponse": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string" },
+              "posting_id": { "type": "string" },
+              "title": { "type": "string" },
+              "company": { "type": "string" },
+              "location": { "type": "string" },
+              "origin_class": { "type": "string" },
+              "potential_duplicate": { "type": "boolean" },
+              "potential_duplicates": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": { "type": "string" },
+                    "title": { "type": "string" },
+                    "company": { "type": "string" },
+                    "reason_code": { "type": "string" }
+                  }
+                }
+              },
+              "merge_evidence": {
+                "type": "object",
+                "properties": {
+                  "total_mentions": { "type": "integer" },
+                  "mentions": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "mention_key": { "type": "string" },
+                        "source_kind": { "type": "string" },
+                        "source_domain": { "type": "string", "nullable": true },
+                        "origin_class": { "type": "string" },
+                        "revisions_count": { "type": "integer" }
+                      }
+                    }
+                  }
+                }
+              },
+              "field_reconciliation": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "field_name": { "type": "string" },
+                    "chosen_value": {},
+                    "selection_reason": { "type": "string" },
+                    "chosen_source": {
+                      "type": "object",
+                      "properties": {
+                        "source_kind": { "type": "string" },
+                        "observed_at": { "type": "string", "format": "date-time" }
+                      }
+                    },
+                    "alternatives": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "value": {},
+                          "source_kind": { "type": "string" },
+                          "observed_at": { "type": "string", "format": "date-time" },
+                          "rejection_reason": { "type": "string" }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "required": ["data"]
+      },
+      "MetaResponse": {
+        "type": "object",
+        "properties": {
+          "corpus_revision": { "type": "string" },
+          "corpus_version": { "type": "string", "nullable": true },
+          "active_approved_postings": { "type": "integer" },
+          "origin_class_counts": { "type": "object" },
+          "available_filters": { "type": "array", "items": { "type": "string" } },
+          "available_sorts": { "type": "array", "items": { "type": "string" } },
+          "disclaimer": { "type": "string" }
+        },
+        "required": ["corpus_revision", "active_approved_postings", "available_filters", "available_sorts", "disclaimer"]
+      },
+      "HealthResponse": {
+        "type": "object",
+        "properties": {
+          "status": { "type": "string", "enum": ["ok", "degraded"] },
+          "database": { "type": "string", "enum": ["connected", "unavailable"] },
+          "approved_release": { "type": "boolean" }
+        },
+        "required": ["status", "database", "approved_release"]
+      },
+      "ErrorResponse": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "object",
+            "properties": {
+              "code": { "type": "string", "example": "invalid_parameter" },
+              "message": { "type": "string", "example": "limit must be from 1 to 50" },
+              "request_id": { "type": "string", "example": "req_abc123" }
+            },
+            "required": ["code", "message", "request_id"]
+          }
+        },
+        "required": ["error"]
+      }
+    }
+  }
+}

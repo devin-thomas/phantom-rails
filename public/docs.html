@@ -1,0 +1,499 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Phantom Rails API — Interactive Documentation</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --card-bg: #1e293b;
+      --header-bg: #0b1120;
+      --border: #334155;
+      --text: #f8fafc;
+      --text-muted: #94a3b8;
+      --primary: #38bdf8;
+      --primary-hover: #0284c7;
+      --method-get: #10b981;
+      --badge-hist: #8b5cf6;
+      --badge-synth: #f59e0b;
+      --code-bg: #030712;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+      padding: 0;
+    }
+    header {
+      background: var(--header-bg);
+      border-bottom: 1px solid var(--border);
+      padding: 1.5rem 2rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 1rem;
+    }
+    header h1 {
+      font-size: 1.5rem;
+      font-weight: 700;
+      letter-spacing: -0.025em;
+      color: var(--text);
+    }
+    header .badges {
+      display: flex;
+      gap: 0.5rem;
+      align-items: center;
+    }
+    .badge {
+      font-size: 0.75rem;
+      font-weight: 600;
+      padding: 0.25rem 0.6rem;
+      border-radius: 9999px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    .badge-primary { background: rgba(56, 189, 248, 0.2); color: var(--primary); }
+    .badge-hist { background: rgba(139, 92, 246, 0.2); color: var(--badge-hist); }
+    .badge-synth { background: rgba(245, 158, 11, 0.2); color: var(--badge-synth); }
+    .container {
+      max-width: 1200px;
+      margin: 2rem auto;
+      padding: 0 1.5rem;
+    }
+    .callout {
+      background: rgba(30, 41, 59, 0.7);
+      border-left: 4px solid var(--primary);
+      padding: 1rem 1.25rem;
+      border-radius: 0 0.5rem 0.5rem 0;
+      margin-bottom: 2rem;
+      font-size: 0.95rem;
+      color: var(--text-muted);
+    }
+    .callout strong { color: var(--text); }
+    .endpoint {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 0.75rem;
+      margin-bottom: 1.5rem;
+      overflow: hidden;
+    }
+    .endpoint-header {
+      padding: 1rem 1.5rem;
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      background: rgba(255, 255, 255, 0.02);
+      border-bottom: 1px solid var(--border);
+      cursor: pointer;
+    }
+    .method {
+      background: rgba(16, 185, 129, 0.2);
+      color: var(--method-get);
+      font-weight: 700;
+      font-size: 0.85rem;
+      padding: 0.3rem 0.6rem;
+      border-radius: 0.375rem;
+    }
+    .path {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 1.05rem;
+      font-weight: 600;
+      color: var(--text);
+    }
+    .summary {
+      color: var(--text-muted);
+      font-size: 0.9rem;
+      margin-left: auto;
+    }
+    .endpoint-body {
+      padding: 1.5rem;
+    }
+    .desc {
+      font-size: 0.95rem;
+      color: var(--text-muted);
+      margin-bottom: 1.25rem;
+    }
+    .params-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-bottom: 1.5rem;
+      font-size: 0.9rem;
+    }
+    .params-table th, .params-table td {
+      text-align: left;
+      padding: 0.6rem 0.8rem;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    }
+    .params-table th {
+      color: var(--text-muted);
+      font-weight: 600;
+      border-bottom: 1px solid var(--border);
+    }
+    .interactive-panel {
+      background: var(--code-bg);
+      border: 1px solid var(--border);
+      border-radius: 0.5rem;
+      padding: 1rem;
+      margin-top: 1rem;
+    }
+    .interactive-panel h4 {
+      font-size: 0.9rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--primary);
+      margin-bottom: 0.75rem;
+    }
+    .form-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+      gap: 0.75rem;
+      margin-bottom: 1rem;
+    }
+    .form-group label {
+      display: block;
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      margin-bottom: 0.25rem;
+    }
+    .form-group input, .form-group select {
+      width: 100%;
+      background: #1e293b;
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 0.4rem 0.6rem;
+      border-radius: 0.375rem;
+      font-size: 0.85rem;
+    }
+    .btn {
+      background: var(--primary);
+      color: #0f172a;
+      font-weight: 600;
+      border: none;
+      padding: 0.5rem 1.25rem;
+      border-radius: 0.375rem;
+      cursor: pointer;
+      font-size: 0.9rem;
+      transition: background 0.15s ease;
+    }
+    .btn:hover { background: var(--primary-hover); }
+    .response-box {
+      margin-top: 1rem;
+      display: none;
+    }
+    .response-meta {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      margin-bottom: 0.5rem;
+      display: flex;
+      gap: 1rem;
+    }
+    pre {
+      background: #030712;
+      border: 1px solid var(--border);
+      border-radius: 0.375rem;
+      padding: 1rem;
+      overflow-x: auto;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 0.85rem;
+      color: #38bdf8;
+      max-height: 400px;
+    }
+    .nav-links a {
+      color: var(--primary);
+      text-decoration: none;
+      margin-left: 1rem;
+      font-size: 0.9rem;
+    }
+    .nav-links a:hover { text-decoration: underline; }
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <h1>Phantom Rails API</h1>
+      <span style="color: var(--text-muted); font-size: 0.85rem;">Deterministic Search & Provenance Documentation</span>
+    </div>
+    <div class="badges">
+      <span class="badge badge-primary">OpenAPI 3.1</span>
+      <span class="badge badge-hist">Sanitized Historical</span>
+      <span class="badge badge-synth">Adversarial Synthetic</span>
+    </div>
+    <div class="nav-links">
+      <a href="/openapi.json" target="_blank">Download OpenAPI Spec</a>
+      <a href="/playground">Open Search Playground</a>
+    </div>
+  </header>
+
+  <div class="container">
+    <div class="callout">
+      <strong>Zero Network Dependency Notice:</strong> This interactive API documentation runs completely self-contained from local assets without third-party CDN scripts or analytics trackers. All queries execute live against <code>/api/v1</code> read-only endpoints on the current origin. Public mutation endpoints do not exist; imports and updates occur exclusively via trusted operator CLI/Rake tasks.
+    </div>
+
+    <!-- GET /api/v1/postings -->
+    <div class="endpoint">
+      <div class="endpoint-header">
+        <span class="method">GET</span>
+        <span class="path">/api/v1/postings</span>
+        <span class="summary">Search & Filter Canonical Postings</span>
+      </div>
+      <div class="endpoint-body">
+        <p class="desc">
+          Executes parameterized PostgreSQL full-text search with explainable field weights (Title +8, Company +5, Location +3, Excerpt +1), compound filters, and HMAC-signed keyset pagination cursors.
+        </p>
+
+        <table class="params-table">
+          <thead>
+            <tr><th>Parameter</th><th>Type</th><th>Description</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><code>q</code></td><td>string (max 120 chars)</td><td>Keyword search query. Requires all meaningful English lexemes to match.</td></tr>
+            <tr><td><code>company</code></td><td>string</td><td>Case-insensitive exact normalized company name.</td></tr>
+            <tr><td><code>location</code></td><td>string</td><td>Normalized city/state location filter.</td></tr>
+            <tr><td><code>remote_type</code></td><td>enum</td><td><code>onsite</code>, <code>hybrid</code>, <code>remote</code>, or <code>unknown</code>.</td></tr>
+            <tr><td><code>employment_type</code></td><td>enum</td><td><code>full_time</code>, <code>part_time</code>, <code>contract</code>, <code>internship</code>, <code>temporary</code>, <code>unknown</code>.</td></tr>
+            <tr><td><code>min_salary_usd</code></td><td>integer</td><td>Annual compensation minimum in USD. Unknown/hourly wages are excluded.</td></tr>
+            <tr><td><code>sort</code></td><td>enum</td><td><code>relevance</code> (default if q present), <code>newest</code>, <code>company</code>, <code>title</code>.</td></tr>
+            <tr><td><code>limit</code></td><td>integer (1-50)</td><td>Results per page (default: 20).</td></tr>
+            <tr><td><code>cursor</code></td><td>string</td><td>Opaque HMAC-signed keyset cursor token.</td></tr>
+          </tbody>
+        </table>
+
+        <div class="interactive-panel">
+          <h4>Live Request Console</h4>
+          <form id="form-postings" onsubmit="executePostings(event)">
+            <div class="form-grid">
+              <div class="form-group">
+                <label>Keyword Query (q)</label>
+                <input type="text" id="p-q" placeholder="e.g. engineer">
+              </div>
+              <div class="form-group">
+                <label>Company</label>
+                <input type="text" id="p-company" placeholder="e.g. Acme Corp">
+              </div>
+              <div class="form-group">
+                <label>Location</label>
+                <input type="text" id="p-location" placeholder="e.g. Denver, CO">
+              </div>
+              <div class="form-group">
+                <label>Remote Type</label>
+                <select id="p-remote">
+                  <option value="">Any</option>
+                  <option value="onsite">Onsite</option>
+                  <option value="hybrid">Hybrid</option>
+                  <option value="remote">Remote</option>
+                  <option value="unknown">Unknown</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label>Min Salary (USD/yr)</label>
+                <input type="number" id="p-salary" placeholder="e.g. 100000">
+              </div>
+              <div class="form-group">
+                <label>Sort</label>
+                <select id="p-sort">
+                  <option value="">Default</option>
+                  <option value="relevance">Relevance</option>
+                  <option value="newest">Newest</option>
+                  <option value="company">Company</option>
+                  <option value="title">Title</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label>Limit</label>
+                <input type="number" id="p-limit" value="10" min="1" max="50">
+              </div>
+            </div>
+            <button type="submit" class="btn">Execute Request</button>
+          </form>
+
+          <div id="resp-postings" class="response-box">
+            <div class="response-meta">
+              <span id="meta-postings-url"></span>
+              <span id="meta-postings-status"></span>
+              <span id="meta-postings-time"></span>
+            </div>
+            <pre><code id="code-postings"></code></pre>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- GET /api/v1/postings/:id -->
+    <div class="endpoint">
+      <div class="endpoint-header">
+        <span class="method">GET</span>
+        <span class="path">/api/v1/postings/:id</span>
+        <span class="summary">Posting Detail</span>
+      </div>
+      <div class="endpoint-body">
+        <p class="desc">Retrieves complete normalized attributes for an active approved posting by its public ID.</p>
+        <div class="interactive-panel">
+          <h4>Live Request Console</h4>
+          <form id="form-detail" onsubmit="executeDetail(event)">
+            <div class="form-grid">
+              <div class="form-group">
+                <label>Posting Public ID</label>
+                <input type="text" id="d-id" placeholder="e.g. post_approved_001" required>
+              </div>
+            </div>
+            <button type="submit" class="btn">Execute Request</button>
+          </form>
+          <div id="resp-detail" class="response-box">
+            <div class="response-meta">
+              <span id="meta-detail-url"></span>
+              <span id="meta-detail-status"></span>
+            </div>
+            <pre><code id="code-detail"></code></pre>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- GET /api/v1/postings/:id/provenance -->
+    <div class="endpoint">
+      <div class="endpoint-header">
+        <span class="method">GET</span>
+        <span class="path">/api/v1/postings/:id/provenance</span>
+        <span class="summary">Reconciliation & Provenance Audit</span>
+      </div>
+      <div class="endpoint-body">
+        <p class="desc">Inspects contributing source mentions, field selection rationales, discarded alternatives, and potential duplicate ambiguity links.</p>
+        <div class="interactive-panel">
+          <h4>Live Request Console</h4>
+          <form id="form-prov" onsubmit="executeProv(event)">
+            <div class="form-grid">
+              <div class="form-group">
+                <label>Posting Public ID</label>
+                <input type="text" id="prov-id" placeholder="e.g. post_approved_001" required>
+              </div>
+            </div>
+            <button type="submit" class="btn">Execute Request</button>
+          </form>
+          <div id="resp-prov" class="response-box">
+            <div class="response-meta">
+              <span id="meta-prov-url"></span>
+              <span id="meta-prov-status"></span>
+            </div>
+            <pre><code id="code-prov"></code></pre>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- GET /api/v1/meta -->
+    <div class="endpoint">
+      <div class="endpoint-header">
+        <span class="method">GET</span>
+        <span class="path">/api/v1/meta</span>
+        <span class="summary">Corpus Revision & Origin Breakdown</span>
+      </div>
+      <div class="endpoint-body">
+        <p class="desc">Returns corpus revision, version, origin counts, available filters and sorts, and source safety disclaimer.</p>
+        <div class="interactive-panel">
+          <button type="button" class="btn" onclick="executeMeta()">Fetch Corpus Meta</button>
+          <div id="resp-meta" class="response-box">
+            <div class="response-meta">
+              <span id="meta-meta-status"></span>
+            </div>
+            <pre><code id="code-meta"></code></pre>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- GET /api/v1/health -->
+    <div class="endpoint">
+      <div class="endpoint-header">
+        <span class="method">GET</span>
+        <span class="path">/api/v1/health</span>
+        <span class="summary">System Readiness Check</span>
+      </div>
+      <div class="endpoint-body">
+        <p class="desc">Non-sensitive check verifying database connectivity and active release presence.</p>
+        <div class="interactive-panel">
+          <button type="button" class="btn" onclick="executeHealth()">Check Health</button>
+          <div id="resp-health" class="response-box">
+            <div class="response-meta">
+              <span id="meta-health-status"></span>
+            </div>
+            <pre><code id="code-health"></code></pre>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    async function executePostings(e) {
+      e.preventDefault();
+      const params = new URLSearchParams();
+      const q = document.getElementById('p-q').value.trim();
+      const company = document.getElementById('p-company').value.trim();
+      const location = document.getElementById('p-location').value.trim();
+      const remote = document.getElementById('p-remote').value;
+      const salary = document.getElementById('p-salary').value;
+      const sort = document.getElementById('p-sort').value;
+      const limit = document.getElementById('p-limit').value;
+
+      if (q) params.set('q', q);
+      if (company) params.set('company', company);
+      if (location) params.set('location', location);
+      if (remote) params.set('remote_type', remote);
+      if (salary) params.set('min_salary_usd', salary);
+      if (sort) params.set('sort', sort);
+      if (limit) params.set('limit', limit);
+
+      const url = '/api/v1/postings' + (params.toString() ? '?' + params.toString() : '');
+      await fetchAndDisplay(url, 'resp-postings', 'meta-postings-url', 'meta-postings-status', 'meta-postings-time', 'code-postings');
+    }
+
+    async function executeDetail(e) {
+      e.preventDefault();
+      const id = encodeURIComponent(document.getElementById('d-id').value.trim());
+      const url = '/api/v1/postings/' + id;
+      await fetchAndDisplay(url, 'resp-detail', 'meta-detail-url', 'meta-detail-status', null, 'code-detail');
+    }
+
+    async function executeProv(e) {
+      e.preventDefault();
+      const id = encodeURIComponent(document.getElementById('prov-id').value.trim());
+      const url = '/api/v1/postings/' + id + '/provenance';
+      await fetchAndDisplay(url, 'resp-prov', 'meta-prov-url', 'meta-prov-status', null, 'code-prov');
+    }
+
+    async function executeMeta() {
+      await fetchAndDisplay('/api/v1/meta', 'resp-meta', null, 'meta-meta-status', null, 'code-meta');
+    }
+
+    async function executeHealth() {
+      await fetchAndDisplay('/api/v1/health', 'resp-health', null, 'meta-health-status', null, 'code-health');
+    }
+
+    async function fetchAndDisplay(url, boxId, urlId, statusId, timeId, codeId) {
+      const box = document.getElementById(boxId);
+      const code = document.getElementById(codeId);
+      box.style.display = 'block';
+      code.textContent = 'Executing request...';
+
+      const t0 = performance.now();
+      try {
+        const resp = await fetch(url);
+        const t1 = performance.now();
+        const data = await resp.json();
+
+        if (urlId) document.getElementById(urlId).textContent = 'Request: ' + url;
+        if (statusId) document.getElementById(statusId).textContent = 'Status: ' + resp.status + ' ' + resp.statusText;
+        if (timeId) document.getElementById(timeId).textContent = 'Duration: ' + Math.round(t1 - t0) + 'ms';
+        code.textContent = JSON.stringify(data, null, 2);
+      } catch (err) {
+        if (statusId) document.getElementById(statusId).textContent = 'Network Error';
+        code.textContent = String(err);
+      }
+    }
+  </script>
+</body>
+</html>
