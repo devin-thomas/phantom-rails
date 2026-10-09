@@ -20,7 +20,7 @@
 | **PHR-006** | Revision replay & import history | **COMPLETE** | Idempotent replay verified with zero duplicate records, zero corpus revision changes, and auditable `ImportRun`; chronological corrections retain previous revisions; `phantom:history` audit CLI verified across 3 tests (20 assertions). |
 | **PHR-007** | Conservative identity resolver | **COMPLETE** | Tier 1 (verified employer req), Tier 2 (canonical job URL), and Tier 3 (platform ID) merges verified; distinct reqs remain separate; Tier 4 weak similarity flagged as `PotentialDuplicate` without merging; verified across 4 tests (14 assertions). |
 | **PHR-008** | Field precedence & conflicts | **COMPLETE** | `FieldReconciler` implemented; verified official employer override (`verified_official_override`) overrides newer conflicting third-party board range; recency default (`newest_credible`); deterministic tie-breaking verified across 3 tests (9 assertions). |
-| **PHR-009** | Approved release projection & revision | Not started | Pending |
+| **PHR-009** | Approved release projection & revision | **COMPLETE** | `ApprovedReleaseManager` and `phantom:publish` Rake task created; atomic release activation; public queries scoped strictly to active approved release via `active_approved`; stable checksummed Corpus Revision verified across 4 tests (16 assertions). |
 | **PHR-010** | Read API & explicit serialization | Not started | Pending |
 | **PHR-011** | Compound filters & weighted relevance | Not started | Pending |
 | **PHR-012** | Revision-safe keyset cursors | Not started | Pending |
@@ -160,6 +160,21 @@
   bin/rails test test/services/field_reconciler_test.rb
   3 runs, 9 assertions, 0 failures, 0 errors, 0 skips
   ```
+
+### PHR-009 — Active Approved Corpus and Publication Revision
+- **Services & CLI:**
+  - `app/services/approved_release_manager.rb`
+  - `lib/tasks/phantom.rake` (`bin/rails phantom:publish[batch,manifest]`)
+- **Verified Behaviors:**
+  - Strict Isolation: Postings in staging (unapproved or unassigned) are excluded from `active_approved` scope and invisible to readers.
+  - Fail-Closed Gate: Tampered bytes or invalid manifests reject publication atomically and retain prior active release.
+  - Checksummed Revision: Stable SHA-256 Corpus Revision token computed from manifest digest, version, and active postings count; unchanged on replay.
+- **Test Output:**
+  ```text
+  bin/rails test test/services/approved_release_manager_test.rb
+  4 runs, 16 assertions, 0 failures, 0 errors, 0 skips
+  ```
+
 
 
 

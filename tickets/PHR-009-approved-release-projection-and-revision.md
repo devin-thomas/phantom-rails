@@ -1,6 +1,6 @@
 # PHR-009 — Active approved corpus and publication revision
 
-**Status:** Not started  
+**Status:** Complete  
 **Lane:** Core engineering / qualification  
 **Dependencies:** PHR-003, PHR-008
 
@@ -16,10 +16,10 @@ Separate operator staging from public visibility, activate only approved release
 
 ## Acceptance Criteria
 
-- [ ] Unapproved staging items cannot be retrieved from public endpoints, even when they exist in local DB.
-- [ ] Tampered approval hash or partial activation prevents publication and retains previous active release.
-- [ ] Approved content change updates the revision; replay with no canonical change does not.
-- [ ] Public PII-canary regression tests pass against activated and rejected candidates.
+- [x] Unapproved staging items cannot be retrieved from public endpoints, even when they exist in local DB.
+- [x] Tampered approval hash or partial activation prevents publication and retains previous active release.
+- [x] Approved content change updates the revision; replay with no canonical change does not.
+- [x] Public PII-canary regression tests pass against activated and rejected candidates.
 
 ## Test / Evidence
 

@@ -28,6 +28,24 @@ namespace :phantom do
     exit(report.status == "failed" ? 1 : 0)
   end
 
+  desc "Publish an approved release candidate with signed manifest"
+  task :publish, [:batch_file, :manifest_file] => :environment do |_t, args|
+    batch_file = args[:batch_file] || Rails.root.join("fixtures", "public-approved", "approved-batch-v1.json")
+    manifest_file = args[:manifest_file] || Rails.root.join("fixtures", "public-approved", "approved-manifest-v1.json")
+
+    res = ApprovedReleaseManager.publish_files!(batch_file, manifest_file)
+    if res.success
+      puts "Successfully published Approved Release ##{res.approved_release.id}"
+      puts "Corpus Revision:  #{res.corpus_revision}"
+      puts "Active Postings:  #{res.postings_count}"
+      exit 0
+    else
+      puts "Failed to publish release:"
+      res.errors.each { |e| puts "  - #{e}" }
+      exit 1
+    end
+  end
+
   desc "Display audit history of all import runs"
   task history: :environment do
     runs = ImportRun.history_summary

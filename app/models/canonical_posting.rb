@@ -9,6 +9,9 @@ class CanonicalPosting < ApplicationRecord
   has_many :potential_duplicates_as_a, class_name: "PotentialDuplicate", foreign_key: :posting_a_id, dependent: :destroy
   has_many :potential_duplicates_as_b, class_name: "PotentialDuplicate", foreign_key: :posting_b_id, dependent: :destroy
 
+  scope :active_approved, -> { joins(:approved_release).where(approved_releases: { active: true }) }
+  scope :unapproved_staging, -> { left_outer_joins(:approved_release).where("approved_releases.id IS NULL OR approved_releases.active = false") }
+
   before_validation :generate_public_id, on: :create
   before_save :update_search_vector
 

@@ -173,10 +173,10 @@ class BatchImporter
           else
             updated += 1
           end
-        end
 
-        # Resolve canonical posting identity deterministically
-        IdentityResolver.resolve_mention(mention)
+          # Resolve canonical posting identity deterministically for new or updated revisions
+          IdentityResolver.resolve_mention(mention)
+        end
       end
     rescue StandardError => e
       invalid_errors << {

@@ -15,6 +15,17 @@ class IdentityResolver
   end
 
   def resolve(mention)
+    if mention.canonical_posting_id.present?
+      posting = mention.canonical_posting
+      FieldReconciler.reconcile!(posting)
+      return ResolveResult.new(
+        canonical_posting: posting,
+        tier: 0,
+        status: :resolved,
+        potential_duplicates_found: posting.potential_duplicate
+      )
+    end
+
     latest_rev = mention.latest_revision
     return ResolveResult.new(status: :no_revisions, tier: nil) unless latest_rev
 
