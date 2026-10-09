@@ -1948,7 +1948,9 @@ class QaAuditRemediationTest < ActionDispatch::IntegrationTest
       "observed_at" => "2026-09-20T10:00:00Z",
       "title" => "Legacy Systems Architect",
       "company" => "Acme Aerospace",
-      "location" => "Denver, CO"
+      "location" => "Denver, CO",
+      "remote_type" => "unknown",
+      "employment_type" => "unknown"
     }
 
     rev = sm.source_revisions.create!(
