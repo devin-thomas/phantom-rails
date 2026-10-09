@@ -230,3 +230,20 @@
   bin/rails test test/services/cursor_token_test.rb test/controllers/api/v1/cursor_pagination_test.rb
   10 runs, 34 assertions, 0 failures, 0 errors, 0 skips
   ```
+
+### PHR-013 — Public Provenance Explanations and Merge Auditing
+- **Serializers & Controllers:**
+  - `app/serializers/provenance_serializer.rb`
+  - `app/serializers/posting_serializer.rb`
+  - `app/controllers/api/v1/postings_controller.rb` (`GET /api/v1/postings/:id/provenance`)
+- **Verified Behaviors:**
+  - Conflict Resolution Inspection: Explains chosen field values, alternatives from other observations, observation timestamps, source kinds, and exact reconciliation reason codes (`verified_official_override`, `newest_credible`, `tie_breaker_authority`).
+  - Merge Evidence Audit: Lists all contributing Source Mentions with domain, source kind, and origin class, without exposing private internal primary keys or unapproved staging rows.
+  - Ambiguity Separation: Inspects bidirectional potential duplicate links while keeping separate postings isolated.
+  - Privacy Boundary: Outlook URLs, tracking parameters, email addresses, and canary tokens never serialize; passes `PrivacyScanner` string verification.
+  - Fail-Closed Missing References: Unknown IDs or unapproved records yield safe 404 responses with zero database traces.
+- **Test Output:**
+  ```text
+  bin/rails test test/serializers/provenance_serializer_test.rb
+  2 runs, 22 assertions, 0 failures, 0 errors, 0 skips
+  ```

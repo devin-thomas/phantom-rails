@@ -1,6 +1,6 @@
 # PHR-013 — Source evidence and reconciliation inspection
 
-**Status:** Not started  
+**Status:** Complete  
 **Lane:** Core engineering / qualification  
 **Dependencies:** PHR-008, PHR-010
 
@@ -11,15 +11,15 @@ Make merge decisions, field conflicts and potential duplicates inspectable safel
 ## Scope
 
 - `/api/v1/postings/:id/provenance` with safe source refs/excerpts, origin labels, selected fields and reason codes.
-- - Approved alternative values and dates, merge evidence tier, ambiguity explanation, no direct private message links.
-- - Deterministic order and truncated plain-text descriptions.
+- Approved alternative values and dates, merge evidence tier, ambiguity explanation, no direct private message links.
+- Deterministic order and truncated plain-text descriptions.
 
 ## Acceptance Criteria
 
-- [ ] Conflict test shows chosen value, alternative, source quality/timestamp and selection reason without raw private body.
-- [ ] Strong-match job detail links all contributing public source mentions; potential duplicates stay separate.
-- [ ] Private source ID, original Outlook link, tracker URL and canary never serialize.
-- [ ] Unknown reference yields safe 404 and no information about unapproved rows.
+- [x] Conflict test shows chosen value, alternative, source quality/timestamp and selection reason without raw private body.
+- [x] Strong-match job detail links all contributing public source mentions; potential duplicates stay separate.
+- [x] Private source ID, original Outlook link, tracker URL and canary never serialize.
+- [x] Unknown reference yields safe 404 and no information about unapproved rows.
 
 ## Test / Evidence
 

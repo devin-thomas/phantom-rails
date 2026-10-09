@@ -33,26 +33,6 @@ class PostingSerializer
   end
 
   def self.render_provenance(posting)
-    {
-      "id" => posting.public_id,
-      "title" => posting.title,
-      "company" => posting.company,
-      "potential_duplicate" => posting.potential_duplicate,
-      "source_mentions" => posting.source_mentions.map do |sm|
-        {
-          "mention_key" => sm.mention_key,
-          "source_kind" => sm.source_kind,
-          "source_domain" => sm.source_domain,
-          "origin_class" => sm.source_record&.origin_class
-        }
-      end,
-      "field_selections" => posting.field_selections.map do |fs|
-        {
-          "field_name" => fs.field_name,
-          "selection_reason" => fs.selection_reason,
-          "selected_from_source" => fs.source_revision&.source_mention&.source_kind
-        }
-      end
-    }
+    ProvenanceSerializer.render(posting)
   end
 end
