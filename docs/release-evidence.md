@@ -18,7 +18,7 @@
 | **PHR-004** | Relational provenance model | **COMPLETE** | PostgreSQL migrations executed for all 9 domain tables (`approved_releases`, `canonical_postings`, `source_records`, `source_mentions`, `source_revisions`, `field_selections`, `potential_duplicates`, `import_runs`, `import_errors`); DB constraints tested and verified across 5 tests (19 assertions); no SQLite divergence. |
 | **PHR-005** | Trusted partial importer | **COMPLETE** | `BatchImporter` and `phantom:import` Rake task created; atomic item-level subtransactions; invalid rows isolated with diagnostics; unsupported versions abort atomically with 0 rows; verified across 4 tests (35 assertions) and CLI runs. |
 | **PHR-006** | Revision replay & import history | **COMPLETE** | Idempotent replay verified with zero duplicate records, zero corpus revision changes, and auditable `ImportRun`; chronological corrections retain previous revisions; `phantom:history` audit CLI verified across 3 tests (20 assertions). |
-| **PHR-007** | Conservative identity resolver | Not started | Pending |
+| **PHR-007** | Conservative identity resolver | **COMPLETE** | Tier 1 (verified employer req), Tier 2 (canonical job URL), and Tier 3 (platform ID) merges verified; distinct reqs remain separate; Tier 4 weak similarity flagged as `PotentialDuplicate` without merging; verified across 4 tests (14 assertions). |
 | **PHR-008** | Field precedence & conflicts | Not started | Pending |
 | **PHR-009** | Approved release projection & revision | Not started | Pending |
 | **PHR-010** | Read API & explicit serialization | Not started | Pending |
@@ -133,6 +133,21 @@
   bin/rails test test/services/revision_replay_test.rb
   3 runs, 20 assertions, 0 failures, 0 errors, 0 skips
   ```
+
+### PHR-007 — Strong Identity Matching and Ambiguity Flags
+- **Service:**
+  - `app/services/identity_resolver.rb`
+- **Verified Behaviors:**
+  - Tier 1: Merges mentions sharing company and employer requisition ID into single Canonical Posting with multiple Source Mentions.
+  - Tier 2: Merges mentions sharing cleaned employer job URL path.
+  - Separate Openings: Requisitions `REQ-101` and `REQ-102` at the same employer remain separate postings.
+  - Tier 4: Uncertain similarity (identical title and company without strong ID) creates separate postings and automatically creates bidirectional `PotentialDuplicate` links.
+- **Test Output:**
+  ```text
+  bin/rails test test/services/identity_resolver_test.rb
+  4 runs, 14 assertions, 0 failures, 0 errors, 0 skips
+  ```
+
 
 
 

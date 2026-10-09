@@ -1,6 +1,6 @@
 # PHR-007 — Strong identity matching and ambiguity flags
 
-**Status:** Not started  
+**Status:** Complete  
 **Lane:** Core engineering / qualification  
 **Dependencies:** PHR-006
 
@@ -16,10 +16,10 @@ Consolidate only well-justified duplicate mentions and surface ambiguous pairs w
 
 ## Acceptance Criteria
 
-- [ ] Two posts with same employer, title and city but distinct requisition IDs remain separate.
-- [ ] Same verified ID across sources merges to one Canonical Posting with two retained Source Mentions.
-- [ ] Weak similarity produces two visible postings and a non-sensitive potential-duplicate flag.
-- [ ] Contradictory strong identifiers refuse auto-merge and report safe `identity_conflict`.
+- [x] Two posts with same employer, title and city but distinct requisition IDs remain separate.
+- [x] Same verified ID across sources merges to one Canonical Posting with two retained Source Mentions.
+- [x] Weak similarity produces two visible postings and a non-sensitive potential-duplicate flag.
+- [x] Contradictory strong identifiers refuse auto-merge and report safe `identity_conflict`.
 
 ## Test / Evidence
 

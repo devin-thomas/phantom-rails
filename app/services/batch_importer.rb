@@ -120,7 +120,8 @@ class BatchImporter
     end
 
     # Process valid items transactionally
-    executable_items.each do |item|
+    executable_items.each do |raw_item|
+      item = Sanitizer.sanitize_item(raw_item)
       ActiveRecord::Base.transaction(requires_new: true) do
         rec = SourceRecord.find_or_create_by!(
           source_system: item["source_system"],
@@ -173,6 +174,9 @@ class BatchImporter
             updated += 1
           end
         end
+
+        # Resolve canonical posting identity deterministically
+        IdentityResolver.resolve_mention(mention)
       end
     rescue StandardError => e
       invalid_errors << {
