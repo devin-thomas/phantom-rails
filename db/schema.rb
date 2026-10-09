@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_09_140000) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_09_150000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -170,6 +170,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_09_140000) do
     t.string "job_url"
     t.jsonb "raw_safe_fields", default: {}, null: false
     t.datetime "created_at", null: false
+    t.string "digest_version", default: "v2"
     t.index ["observed_at"], name: "index_source_revisions_on_observed_at"
     t.index ["source_mention_id", "revision_digest"], name: "idx_on_source_mention_id_revision_digest_6dbb8995b0", unique: true
     t.index ["source_mention_id"], name: "index_source_revisions_on_source_mention_id"

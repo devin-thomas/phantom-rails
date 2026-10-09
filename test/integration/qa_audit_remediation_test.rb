@@ -241,7 +241,7 @@ class QaAuditRemediationTest < ActionDispatch::IntegrationTest
     assert_equal 2, CanonicalPosting.count
   end
 
-  test "conflicting employer requisition IDs never merge even if sharing employer and job URL" do
+  test "conflicting employer requisition IDs sharing job URL are flagged as identity_conflict and never silently merged or created" do
     batch = {
       "batch_schema_version" => "1.0",
       "batch_id" => "conflicting-req-id-batch",
@@ -263,7 +263,7 @@ class QaAuditRemediationTest < ActionDispatch::IntegrationTest
           "source_record_key" => "rec-req-102",
           "mention_key" => "m1",
           "source_system" => "ats",
-          "job_id" => "REQ-102", # Conflicting requisition ID!
+          "job_id" => "REQ-102", # Conflicting requisition ID on same job_url!
           "observed_at" => "2026-09-21T10:00:00Z",
           "source_kind" => "official_employer",
           "title" => "Staff Engineer",
@@ -275,10 +275,12 @@ class QaAuditRemediationTest < ActionDispatch::IntegrationTest
     }
 
     report = BatchImporter.import_string(JSON.generate(batch))
-    assert_equal "complete", report.status
+    assert_not_equal "complete", report.status
+    assert_equal 1, report.invalid_count
+    assert report.errors.any? { |e| e[:error_code] == "identity_conflict" }
 
-    # Requisitions REQ-101 and REQ-102 must remain separate postings!
-    assert_equal 2, CanonicalPosting.count
+    # Only Item 1 was persisted; Item 2 with conflicting REQ ID on same URL was rejected and NOT merged or silently added!
+    assert_equal 1, CanonicalPosting.count
   end
 
   # ==========================================================================
@@ -302,6 +304,7 @@ class QaAuditRemediationTest < ActionDispatch::IntegrationTest
           "title" => "Site Reliability Engineer",
           "company" => "Globex Software",
           "location" => "Austin, TX",
+          "job_url" => "https://careers.globex.example.com/jobs/sre-500",
           "salary" => { "min": 250000, "max": 300000, "currency": "USD", "period": "year" }
         },
         {
@@ -315,6 +318,7 @@ class QaAuditRemediationTest < ActionDispatch::IntegrationTest
           "title" => "Site Reliability Engineer",
           "company" => "Globex Software",
           "location" => "Austin, TX",
+          "job_url" => "https://careers.globex.example.com/jobs/sre-500",
           "salary" => { "min": 150000, "max": 180000, "currency": "USD", "period": "year" }
         }
       ]
@@ -571,6 +575,7 @@ class QaAuditRemediationTest < ActionDispatch::IntegrationTest
           "title" => "Lead Systems Engineer",
           "company" => "Globex Software",
           "location" => "Austin, TX",
+          "job_url" => "https://careers.globex.example.com/jobs/lead-systems-engineer",
           "salary" => { "min": 999999, "max": 999999, "currency": "USD", "period": "year" }
         },
         {
@@ -584,6 +589,7 @@ class QaAuditRemediationTest < ActionDispatch::IntegrationTest
           "title" => "Lead Systems Engineer",
           "company" => "Globex Software",
           "location" => "Austin, TX",
+          "job_url" => "https://careers.globex.example.com/jobs/lead-systems-engineer",
           "salary" => { "min": 140000, "max": 170000, "currency": "USD", "period": "year" }
         }
       ]
@@ -819,28 +825,24 @@ class QaAuditRemediationTest < ActionDispatch::IntegrationTest
       summary_excerpt: "Confidential private candidate info at qa3-canary@example.com"
     )
 
-    # 3. Assert public endpoint serves only historical approved snapshot; NEVER canary
+    # 3. Assert public endpoint fails closed (404) for release lacking explicit approved_release_revisions; NEVER canary
     get "/api/v1/postings/#{posting.public_id}"
-    assert_response :success
-    posting_json = JSON.parse(response.body)
-    assert_equal "Legacy Engineer", posting_json.dig("data", "title")
-    refute_includes response.body, "qa3-canary@example.com"
-    refute_includes response.body, "LEAKED PRIVATE TITLE"
+    assert_response :not_found
 
     get "/api/v1/postings/#{posting.public_id}/provenance"
-    assert_response :success
-    prov_json = JSON.parse(response.body)
-    assert_equal 1, prov_json.dig("data", "source_mentions", 0, "revisions_count")
-    refute_includes response.body, "qa3-canary@example.com"
-    refute_includes response.body, "LEAKED PRIVATE TITLE"
+    assert_response :not_found
 
-    # Direct serializer check: zero canary leaks, only historical snapshot
+    # Direct serializer check: zero canary leaks, fails closed with 0 mentions
     direct_prov = ProvenanceSerializer.render(posting)
-    assert_equal 1, direct_prov["source_mentions"].size
-    assert_equal 1, direct_prov["source_mentions"][0]["revisions_count"]
-    assert_equal 1, direct_prov["merge_evidence"]["total_mentions"]
+    assert_equal 0, direct_prov["source_mentions"].size
+    assert_equal 0, direct_prov["merge_evidence"]["total_mentions"]
     refute_includes direct_prov.to_json, "qa3-canary@example.com"
     refute_includes direct_prov.to_json, "LEAKED PRIVATE TITLE"
+
+    # Activation must also reject release with zero memberships
+    assert_raises(StandardError) do
+      legacy_release.activate!
+    end
   end
 
   test "QA Round 3: QA3-02 changed requisition ID and domain are quarantined as identity_conflict" do
@@ -1127,5 +1129,376 @@ class QaAuditRemediationTest < ActionDispatch::IntegrationTest
     # Normalized text digest matches trimmed content
     assert_equal ReleaseGate.compute_digest(raw_str, algorithm: "sha256-normalized-text"),
                  ReleaseGate.compute_digest(padded_str, algorithm: "sha256-normalized-text")
+  end
+
+  # ==========================================================================
+  # QA Round 4 Regressions (QA4-01 through QA4-07)
+  # ==========================================================================
+
+  test "QA Round 4: QA4-01 cross-signal identity conflicts are detected before filtering and quarantined as identity_conflict" do
+    # 1. Ingest base batch with Posting A (REQ-A, ats-a URL) and Posting B (REQ-B, ats-b URL)
+    base_batch = {
+      "batch_schema_version" => "1.0",
+      "batch_id" => "qa4-01-base-batch",
+      "origin_class" => "adversarial_synthetic",
+      "items" => [
+        {
+          "source_record_key" => "rec-qa4-post-a",
+          "mention_key" => "m1",
+          "source_system" => "ats_greenhouse",
+          "source_domain" => "careers.acme.example.com",
+          "observed_at" => "2026-10-01T10:00:00Z",
+          "source_kind" => "official_employer",
+          "job_id" => "REQ-QA4-A",
+          "title" => "Senior Distributed Engineer",
+          "company" => "Acme Aerospace",
+          "location" => "Denver, CO",
+          "job_url" => "https://careers.acme.example.com/jobs/dist-eng-a"
+        },
+        {
+          "source_record_key" => "rec-qa4-post-b",
+          "mention_key" => "m1",
+          "source_system" => "ats_lever",
+          "source_domain" => "careers.acme.example.com",
+          "observed_at" => "2026-10-01T10:00:00Z",
+          "source_kind" => "official_employer",
+          "job_id" => "REQ-QA4-B",
+          "title" => "Senior Distributed Engineer",
+          "company" => "Acme Aerospace",
+          "location" => "Denver, CO",
+          "job_url" => "https://careers.acme.example.com/jobs/dist-eng-b"
+        }
+      ]
+    }
+    report1 = BatchImporter.import_string(JSON.generate(base_batch))
+    assert_equal "complete", report1.status
+    assert_equal 2, CanonicalPosting.where(company: "Acme Aerospace").count
+
+    post_a = CanonicalPosting.joins(:source_mentions).find_by(source_mentions: { job_id: "REQ-QA4-A" })
+    post_b = CanonicalPosting.joins(:source_mentions).find_by(source_mentions: { job_id: "REQ-QA4-B" })
+    refute_equal post_a.id, post_b.id
+
+    # 2. Ingest new observation claiming REQ-QA4-A (matches A) but B's exact URL (matches B)
+    conflict_batch = {
+      "batch_schema_version" => "1.0",
+      "batch_id" => "qa4-01-conflict-batch",
+      "origin_class" => "adversarial_synthetic",
+      "items" => [
+        {
+          "source_record_key" => "rec-qa4-contradiction",
+          "mention_key" => "m1",
+          "source_system" => "aggregator_feed",
+          "observed_at" => "2026-10-02T12:00:00Z",
+          "source_kind" => "third_party_board",
+          "job_id" => "REQ-QA4-A", # Claims Requisition A!
+          "title" => "Senior Distributed Engineer",
+          "company" => "Acme Aerospace",
+          "location" => "Denver, CO",
+          "job_url" => "https://careers.acme.example.com/jobs/dist-eng-b" # BUT matches Posting B's URL!
+        }
+      ]
+    }
+
+    report2 = BatchImporter.import_string(JSON.generate(conflict_batch))
+    assert_not_equal "complete", report2.status
+    assert_equal 1, report2.invalid_count
+    assert report2.errors.any? { |e| e[:error_code] == "identity_conflict" }
+
+    # Verify: Neither posting was mutated or merged
+    assert_equal 2, CanonicalPosting.where(company: "Acme Aerospace").count
+    post_a.reload
+    post_b.reload
+    assert_equal 1, post_a.source_mentions.count
+    assert_equal 1, post_b.source_mentions.count
+  end
+
+  test "QA Round 4: QA4-02 unverified third-party job IDs cannot auto-merge under Tier 1 without verified official authority" do
+    batch = {
+      "batch_schema_version" => "1.0",
+      "batch_id" => "qa4-02-unverified-id-batch",
+      "origin_class" => "adversarial_synthetic",
+      "items" => [
+        {
+          "source_record_key" => "rec-qa4-board-1",
+          "mention_key" => "m1",
+          "source_system" => "untrusted_board_alpha",
+          "source_domain" => "board-alpha.example.org",
+          "observed_at" => "2026-10-01T10:00:00Z",
+          "source_kind" => "third_party_board",
+          "job_id" => "123", # Shared generic ID on third party
+          "title" => "DevOps Engineer",
+          "company" => "Initech",
+          "location" => "Austin, TX"
+        },
+        {
+          "source_record_key" => "rec-qa4-board-2",
+          "mention_key" => "m1",
+          "source_system" => "untrusted_board_beta",
+          "source_domain" => "board-beta.example.org",
+          "observed_at" => "2026-10-01T10:00:00Z",
+          "source_kind" => "third_party_board",
+          "job_id" => "123", # Same ID 123 but distinct opening!
+          "title" => "Security Specialist",
+          "company" => "Initech",
+          "location" => "Dallas, TX"
+        }
+      ]
+    }
+
+    report = BatchImporter.import_string(JSON.generate(batch))
+    assert_equal "complete", report.status
+
+    # Must NOT auto-merge under Tier 1; must remain 2 separate canonical postings!
+    postings = CanonicalPosting.where(company: "Initech")
+    assert_equal 2, postings.count
+    assert PotentialDuplicate.where(posting_a: postings).or(PotentialDuplicate.where(posting_b: postings)).exists?
+  end
+
+  test "QA Round 4: QA4-03 official source record allowlist impersonation requires composite system and record key" do
+    # Attempt to spoof rec-official-acme using untrusted_board, blank domain, claiming official_employer
+    batch = {
+      "batch_schema_version" => "1.0",
+      "batch_id" => "qa4-03-spoof-allowlist",
+      "origin_class" => "adversarial_synthetic",
+      "items" => [
+        {
+          "source_record_key" => "rec-official-acme", # Known allowlisted key
+          "mention_key" => "m1",
+          "source_system" => "untrusted_board", # NOT an authorized system for this key!
+          "observed_at" => "2026-09-20T10:00:00Z",
+          "source_kind" => "official_employer",
+          "job_id" => "REQ-IMPERSONATE",
+          "title" => "Staff Flight Controller",
+          "company" => "Acme Aerospace",
+          "location" => "Denver, CO",
+          "job_url" => "https://careers.acme.example.com/jobs/flight-controller",
+          "salary" => { "min": 999999, "max": 999999, "currency": "USD", "period": "year" }
+        },
+        {
+          "source_record_key" => "rec-board-honest",
+          "mention_key" => "m1",
+          "source_system" => "reviewed_export",
+          "source_domain" => "techjobs.example.org",
+          "observed_at" => "2026-09-25T10:00:00Z", # newer credible observation
+          "source_kind" => "third_party_board",
+          "job_id" => "REQ-IMPERSONATE",
+          "title" => "Staff Flight Controller",
+          "company" => "Acme Aerospace",
+          "location" => "Denver, CO",
+          "job_url" => "https://careers.acme.example.com/jobs/flight-controller",
+          "salary" => { "min": 170000, "max": 210000, "currency": "USD", "period": "year" }
+        }
+      ]
+    }
+
+    report = BatchImporter.import_string(JSON.generate(batch))
+    assert_equal "complete", report.status
+
+    m1 = SourceMention.joins(:source_record).find_by(source_records: { source_system: "untrusted_board", source_record_key: "rec-official-acme" })
+    assert_not SourceAuthority.verified_official?(m1, "Acme Aerospace"), "Must NOT grant verified official authority to untrusted system with blank domain"
+
+    posting = CanonicalPosting.find_by(title: "Staff Flight Controller")
+    assert_not_nil posting
+    # Newer credible observation must win; spoofed 999k salary must NOT override
+    assert_equal 170000, posting.salary_min.to_i
+    assert_equal 210000, posting.salary_max.to_i
+  end
+
+  test "QA Round 4: QA4-04 release activation is forward-only and rejects unsupported rollback to superseded releases" do
+    # 1. Publish Release 1
+    batch_v1 = {
+      "batch_schema_version" => "1.0",
+      "batch_id" => "qa4-04-r1-batch",
+      "origin_class" => "sanitized_historical",
+      "items" => [
+        {
+          "source_record_key" => "rec-qa4-r1",
+          "mention_key" => "m1",
+          "source_system" => "reviewed_export",
+          "observed_at" => "2026-09-01T10:00:00Z",
+          "source_kind" => "official_employer",
+          "source_domain" => "careers.acme.example.com",
+          "job_id" => "REQ-R1",
+          "title" => "Release One Engineer",
+          "company" => "Acme Aerospace",
+          "location" => "Denver, CO"
+        }
+      ]
+    }
+    b1_json = JSON.generate(batch_v1)
+    m1_json = JSON.generate(ReleaseGate.build_manifest(b1_json, approved_by: "qa-lead", corpus_version: "2026.10.R1"))
+    res1 = ApprovedReleaseManager.new.publish!(b1_json, m1_json)
+    assert res1.success
+    r1 = res1.approved_release
+    assert r1.reload.active
+
+    # 2. Publish Release 2 (superseding R1)
+    batch_v2 = {
+      "batch_schema_version" => "1.0",
+      "batch_id" => "qa4-04-r2-batch",
+      "origin_class" => "sanitized_historical",
+      "items" => [
+        {
+          "source_record_key" => "rec-qa4-r2",
+          "mention_key" => "m1",
+          "source_system" => "reviewed_export",
+          "observed_at" => "2026-09-02T10:00:00Z",
+          "source_kind" => "official_employer",
+          "source_domain" => "careers.acme.example.com",
+          "job_id" => "REQ-R2",
+          "title" => "Release Two Engineer",
+          "company" => "Acme Aerospace",
+          "location" => "Denver, CO"
+        }
+      ]
+    }
+    b2_json = JSON.generate(batch_v2)
+    m2_json = JSON.generate(ReleaseGate.build_manifest(b2_json, approved_by: "qa-lead", corpus_version: "2026.10.R2"))
+    res2 = ApprovedReleaseManager.new.publish!(b2_json, m2_json)
+    assert res2.success
+    r2 = res2.approved_release
+
+    assert_not r1.reload.active
+    assert r2.reload.active
+
+    # 3. Attempt rollback to superseded release R1
+    assert_raises(ApprovedRelease::UnsupportedRollbackError) do
+      r1.activate!
+    end
+
+    # R2 must remain active
+    assert_not r1.reload.active
+    assert r2.reload.active
+  end
+
+  test "QA Round 4: QA4-05 revision digest uses canonical sorted JSON (v2) to eliminate pipe delimiter collisions" do
+    base_attrs = {
+      "source_system" => "ats",
+      "source_record_key" => "rec-1",
+      "mention_key" => "m1",
+      "origin_class" => "sanitized_historical",
+      "source_kind" => "official_employer",
+      "source_domain" => "careers.example.com",
+      "job_id" => "REQ-1",
+      "location" => "Denver, CO",
+      "remote_type" => "hybrid",
+      "employment_type" => "full_time",
+      "salary_min" => 100000,
+      "salary_max" => 120000,
+      "salary_currency" => "USD",
+      "salary_period" => "year",
+      "summary_excerpt" => "Desc",
+      "job_url" => "https://example.com/job"
+    }
+
+    obs_a = base_attrs.merge("title" => "Senior Engineer", "company" => "A|B")
+    obs_b = base_attrs.merge("title" => "Senior Engineer|A", "company" => "B")
+
+    # In legacy v1 (pipe-joined concatenation), these collided to the identical SHA-256:
+    v1_digest_a = SourceRevision.compute_digest(obs_a, version: "v1")
+    v1_digest_b = SourceRevision.compute_digest(obs_b, version: "v1")
+    assert_equal v1_digest_a, v1_digest_b, "Demonstrates legacy non-injective delimiter collision in v1"
+
+    # In canonical v2 (ordered JSON), digests are guaranteed distinct and injective:
+    v2_digest_a = SourceRevision.compute_digest(obs_a, version: "v2")
+    v2_digest_b = SourceRevision.compute_digest(obs_b, version: "v2")
+    refute_equal v2_digest_a, v2_digest_b, "v2 canonical JSON digest must produce distinct hashes for different field boundaries"
+  end
+
+  test "QA Round 4: QA4-06 replay of identical input against v1 digest database upgrades to v2 without spurious revisions" do
+    # 1. Create a legacy revision in database with digest_version "v1" and v1 digest
+    rec = SourceRecord.create!(source_system: "reviewed_export", source_record_key: "rec-qa4-v1", origin_class: "sanitized_historical")
+    sm = SourceMention.create!(source_record: rec, mention_key: "m1", source_kind: "official_employer", source_domain: "careers.acme.example.com", job_id: "REQ-V1")
+    
+    item_attrs = {
+      "source_record_key" => "rec-qa4-v1",
+      "mention_key" => "m1",
+      "source_system" => "reviewed_export",
+      "origin_class" => "sanitized_historical",
+      "source_kind" => "official_employer",
+      "source_domain" => "careers.acme.example.com",
+      "job_id" => "REQ-V1",
+      "observed_at" => "2026-09-01T10:00:00Z",
+      "title" => "Hardware Reliability Engineer",
+      "company" => "Acme Aerospace",
+      "location" => "Denver, CO",
+      "remote_type" => "unknown",
+      "employment_type" => "unknown"
+    }
+    v1_digest = SourceRevision.compute_digest(item_attrs, version: "v1")
+    v2_digest = SourceRevision.compute_digest(item_attrs, version: "v2")
+
+    rev = sm.source_revisions.create!(
+      revision_digest: v1_digest,
+      digest_version: "v1",
+      observed_at: Time.parse("2026-09-01T10:00:00Z"),
+      title: "Hardware Reliability Engineer",
+      company: "Acme Aerospace",
+      location: "Denver, CO"
+    )
+
+    initial_revisions_count = SourceRevision.count
+
+    # 2. Replay identical input batch
+    replay_batch = {
+      "batch_schema_version" => "1.0",
+      "batch_id" => "qa4-06-replay-batch",
+      "origin_class" => "sanitized_historical",
+      "items" => [item_attrs]
+    }
+
+    report = BatchImporter.import_string(JSON.generate(replay_batch))
+    assert_equal "complete", report.status
+    assert_equal 1, report.unchanged_count, "Identical replay must be counted as unchanged"
+    assert_equal 0, report.inserted_count
+    assert_equal 0, report.updated_count
+
+    # 3. Assert zero new revisions created and existing revision upgraded in-place to v2
+    assert_equal initial_revisions_count, SourceRevision.count
+    rev.reload
+    assert_equal "v2", rev.digest_version
+    assert_equal v2_digest, rev.revision_digest
+  end
+
+  test "QA Round 4: QA4-07 release lacking explicit approved_release_revisions memberships fails closed" do
+    rel = ApprovedRelease.create!(
+      manifest_digest: "digest-qa4-07-unjoined",
+      approval_signature: "sig-qa4-07-unjoined",
+      approved_by: "qa-auditor",
+      approved_at: 10.minutes.ago,
+      corpus_version: "2026.10.QA7",
+      total_items: 1,
+      active: false
+    )
+
+    # 1. Activation must fail closed when memberships are empty
+    assert_raises(StandardError) do
+      rel.activate!
+    end
+
+    # 2. Even if marked active in DB directly, queries must fail closed
+    rel.update_columns(active: true)
+
+    rec = SourceRecord.create!(source_system: "ats", source_record_key: "rec-qa7", origin_class: "sanitized_historical", approved_release_id: rel.id)
+    sm = SourceMention.create!(source_record: rec, mention_key: "m1", source_kind: "official_employer")
+    rev = sm.source_revisions.create!(revision_digest: "d-qa7", observed_at: Time.now.utc, title: "Title", company: "Company", location: "Loc")
+    posting = CanonicalPosting.create!(
+      approved_release: rel,
+      title: "Title",
+      company: "Company",
+      location: "Loc",
+      first_observed_at: Time.now.utc,
+      last_observed_at: Time.now.utc
+    )
+
+    refute_includes CanonicalPosting.active_approved.pluck(:id), posting.id
+    assert_equal 0, posting.approved_revisions.count
+    assert_equal 0, ProvenanceSerializer.render(posting)["source_mentions"].size
+
+    get "/api/v1/postings/#{posting.public_id}"
+    assert_response :not_found
+
+    get "/api/v1/postings/#{posting.public_id}/provenance"
+    assert_response :not_found
   end
 end

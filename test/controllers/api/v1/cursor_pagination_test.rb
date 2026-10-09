@@ -32,11 +32,23 @@ class Api::V1::CursorPaginationTest < ActionDispatch::IntegrationTest
         last_observed_at: (10 - i).days.ago,
         first_observed_at: 12.days.ago
       )
-      SourceMention.create!(
+      sm = SourceMention.create!(
         source_record: @record,
         canonical_posting: post,
         mention_key: "rec_pages_01:m_#{i}",
         source_kind: "official_employer"
+      )
+      rev = sm.source_revisions.create!(
+        revision_digest: "d_pages_#{i}",
+        observed_at: (10 - i).days.ago,
+        title: post.title,
+        company: post.company,
+        location: post.location
+      )
+      ApprovedReleaseRevision.create!(
+        approved_release: @release,
+        source_revision: rev,
+        snapshot_source_domain: "careers.alphacorp.example.com"
       )
       @created_postings << post
     end
@@ -116,7 +128,7 @@ class Api::V1::CursorPaginationTest < ActionDispatch::IntegrationTest
 
     # Advance the corpus revision by activating a new release
     @release.update!(active: false)
-    ApprovedRelease.create!(
+    new_rel = ApprovedRelease.create!(
       manifest_digest: Digest::SHA256.hexdigest("mock_manifest_pagination_v2"),
       approval_signature: "sig_pagination_v2",
       approved_by: "auditor@phantomrails.dev",
@@ -124,6 +136,11 @@ class Api::V1::CursorPaginationTest < ActionDispatch::IntegrationTest
       corpus_version: "2026.04.2",
       total_items: 5,
       active: true
+    )
+    ApprovedReleaseRevision.create!(
+      approved_release: new_rel,
+      source_revision: @created_postings.first.source_revisions.first,
+      snapshot_source_domain: "careers.alphacorp.example.com"
     )
 
     get "/api/v1/postings?sort=newest&limit=2&cursor=#{cursor}"

@@ -27,9 +27,12 @@ class SourceAuthority
 
   # Operator-reviewed source record grants for explicit test/fixture keys
   DEFAULT_VERIFIED_RECORDS = {
-    "acme aerospace" => %w[rec-official-acme],
-    "echo corp" => %w[rec_03],
-    "alpha shield" => %w[rec_04]
+    "acme aerospace" => [
+      { "system" => "reviewed_export", "key" => "rec-official-acme" },
+      { "system" => "ats", "key" => "rec-official-acme" }
+    ],
+    "echo corp" => [{ "system" => "ats", "key" => "rec_03" }],
+    "alpha shield" => [{ "system" => "ats", "key" => "rec_04" }]
   }.freeze
 
   AUTHORITY_RANKS = {
@@ -45,7 +48,9 @@ class SourceAuthority
 
     norm_company = company_name.to_s.strip.downcase
     source_domain = source_mention.source_domain.to_s.strip.downcase
-    record_key = source_mention.source_record&.source_record_key.to_s.strip
+    record = source_mention.source_record
+    record_key = record&.source_record_key.to_s.strip
+    record_sys = record&.source_system.to_s.strip
 
     # 1. Check operator-reviewed domain mapping
     verified_domains = verified_domains_map[norm_company] || []
@@ -54,14 +59,31 @@ class SourceAuthority
     end
 
     # 2. Check operator-reviewed explicit source record authority grant
+    # Strictly requires matching BOTH source_system and source_record_key
     verified_records = verified_records_map[norm_company] || []
-    if record_key.present? && verified_records.include?(record_key)
-      # If an unverified domain is attached, reject
-      return false if source_domain.present? && !verified_domains.include?(source_domain)
-      return true
+    if record_key.present? && record_sys.present?
+      matches_grant = verified_records.any? do |grant|
+        if grant.is_a?(Hash)
+          grant["system"].to_s == record_sys && grant["key"].to_s == record_key
+        elsif grant.is_a?(String) && grant.include?(":")
+          sys, key = grant.split(":", 2)
+          sys == record_sys && key == record_key
+        else
+          # Legacy bare key grant: ONLY valid if system is in TRUSTED_SYSTEMS
+          grant.to_s == record_key && TRUSTED_SYSTEMS.include?(record_sys)
+        end
+      end
+
+      if matches_grant
+        # If an unverified domain is attached, reject
+        return false if source_domain.present? && !verified_domains.include?(source_domain)
+        # Blank domain requires trusted system with reviewed grant
+        return false if source_domain.blank? && !%w[reviewed_export ats].include?(record_sys)
+        return true
+      end
     end
 
-    # Never trust unverified source assertions or substring exclusions
+    # Never trust unverified source assertions or unverified record keys
     false
   end
 

@@ -58,47 +58,24 @@ class ProvenanceSerializer
 
   def render_mentions
     if @posting.approved_release_id.present?
-      if @posting.approved_release&.approved_release_revisions&.exists?
-        app_revs = ApprovedReleaseRevision.where(
-          approved_release_id: @posting.approved_release_id,
-          source_revision_id: @posting.source_revisions.select(:id)
-        ).includes(source_revision: { source_mention: :source_record })
+      return [] unless @posting.approved_release&.approved_release_revisions&.exists?
 
-        by_mention = app_revs.group_by { |ar| ar.source_revision.source_mention }
-        by_mention.keys.sort_by(&:id).map do |sm|
-          ar_list = by_mention[sm]
-          latest_ar = ar_list.max_by { |ar| [ar.source_revision.observed_at || Time.at(0), ar.source_revision.id] }
-          {
-            "mention_key" => sm.mention_key,
-            "source_kind" => sm.source_kind,
-            "source_domain" => latest_ar&.snapshot_source_domain.presence || sm.source_domain,
-            "origin_class" => latest_ar&.snapshot_origin_class.presence || sm.source_record&.origin_class,
-            "revisions_count" => ar_list.size
-          }
-        end
-      else
-        app_at = @posting.approved_release&.approved_at
-        scope = @posting.source_mentions.joins(:source_record).order(:id)
-        scope.map do |sm|
-          rev_scope = if app_at.present?
-            sm.source_revisions.where(
-              "source_revisions.created_at <= :app_at AND (source_revisions.observed_at IS NULL OR source_revisions.observed_at <= :app_at)",
-              app_at: app_at + 1.second
-            )
-          else
-            sm.source_revisions
-          end
-          next if sm.source_revisions.exists? && rev_scope.empty?
+      app_revs = ApprovedReleaseRevision.where(
+        approved_release_id: @posting.approved_release_id,
+        source_revision_id: @posting.source_revisions.select(:id)
+      ).includes(source_revision: { source_mention: :source_record })
 
-          latest_rev = rev_scope.max_by { |r| [r.observed_at || Time.at(0), r.id] }
-          {
-            "mention_key" => sm.mention_key,
-            "source_kind" => sm.source_kind,
-            "source_domain" => sm.source_domain,
-            "origin_class" => sm.source_record&.origin_class,
-            "revisions_count" => rev_scope.count
-          }
-        end.compact
+      by_mention = app_revs.group_by { |ar| ar.source_revision.source_mention }
+      by_mention.keys.sort_by(&:id).map do |sm|
+        ar_list = by_mention[sm]
+        latest_ar = ar_list.max_by { |ar| [ar.source_revision.observed_at || Time.at(0), ar.source_revision.id] }
+        {
+          "mention_key" => sm.mention_key,
+          "source_kind" => sm.source_kind,
+          "source_domain" => latest_ar&.snapshot_source_domain.presence || sm.source_domain,
+          "origin_class" => latest_ar&.snapshot_origin_class.presence || sm.source_record&.origin_class,
+          "revisions_count" => ar_list.size
+        }
       end
     else
       scope = @posting.source_mentions.joins(:source_record).order(:id)

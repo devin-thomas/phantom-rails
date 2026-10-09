@@ -418,4 +418,30 @@ Following independent QA code audits, the following guarantees and protections w
    - Calculated `SourceAuthority.authority_fingerprint` (SHA-256) and bound it to `ApprovedRelease#authority_fingerprint`, `ApprovedReleaseManager.current_revision`, and `ProvenanceSerializer` merge evidence.
 6. **QA3-06: Digest Semantics & Evidence Documentation (P2):**
    - `ReleaseGate` supports exact-byte SHA-256 (`sha256-exact`, default) and normalized text SHA (`sha256-normalized-text`).
-   - Fully qualified test suite: **103 tests, 615 assertions, 0 failures, 0 errors, 0 skips**. All verification gates pass in `bin/verify`.
+   - Qualified test suite: **103 tests, 615 assertions, 0 failures, 0 errors, 0 skips**. All verification gates pass in `bin/verify`.
+
+### Round 4 Audit Remediations
+1. **QA4-01: Cross-Signal Identity Conflict Detection & Propagation (P1):**
+   - `IdentityResolver` retains strong claims across Tier 1 (requisition ID), Tier 2 (job URL), and Tier 3 (platform ID) and detects contradictions before candidate filtering.
+   - Contradictory cross-signal claims (e.g. matching requisition ID on Posting A while matching URL on Posting B, or conflicting requisition IDs on a shared URL) return `status: :identity_conflict`.
+   - `BatchImporter` inspects `ResolveResult.status` and propagates `identity_conflict` as an item-level invalid error, ensuring contradictory inputs are quarantined rather than silently merged or created.
+2. **QA4-02: Verified Employer Authority Required for Tier 1 Requisition Merging (P1):**
+   - Restricted Tier 1 requisition matching in `IdentityResolver#find_tier1_candidates` to verified official employer sources (`SourceAuthority.verified_official?` on at least one side).
+   - Independent unverified third-party job boards sharing generic IDs (e.g., `job_id="123"`) with differing titles or locations remain separate postings and are flagged with uncertainty (`PotentialDuplicate` with `unverified_shared_job_id`).
+3. **QA4-03: Composite System and Record Key Binding for Official Grants (P1):**
+   - `SourceAuthority.verified_official?` and `config/source_authority.yml` require composite `[source_system, source_record_key]` matching and verify company binding.
+   - Forbids blank domains on untrusted sources, preventing third-party boards from impersonating reviewed employer record keys without authorization.
+4. **QA4-04: Forward-Only Release Activation & Unsupported Rollback Defense (P1):**
+   - `ApprovedRelease#activate!` declares release activation forward-only and raises `ApprovedRelease::UnsupportedRollbackError` when attempting to reactivate superseded releases, preventing mutable posting corruption.
+5. **QA4-05: Injective Canonical JSON Revision Digest (v2) Eliminating Delimiter Collisions (P1):**
+   - `SourceRevision.compute_digest` upgraded to sorted canonical JSON serialization (`v2`), eliminating non-injective pipe delimiter boundary collisions (e.g., `"Senior Engineer"` / `"A|B"` vs `"Senior Engineer|A"` / `"B"`).
+6. **QA4-06: Database Migration & Idempotent Replay for Digest Contract Upgrade (P2):**
+   - Migration `20261009150000_upgrade_revision_digests_to_v2.rb` added `digest_version` (`string`, default: `"v2"`) and upgraded existing revisions safely.
+   - `BatchImporter` checks `[v2_digest, v1_digest]` and upgrades legacy records in-place without creating duplicate revisions or mutating active corpus projections.
+7. **QA4-07: Legacy Timestamp Fallback Removal & Strict Membership Fail-Closed Protection (P2):**
+   - Removed timestamp inference heuristic (`created_at <= approved_at + 1.second`); replaced with strict `approved_release_revisions` membership across `CanonicalPosting#approved_revisions`, `CanonicalPosting.active_approved`, and `ProvenanceSerializer#render_mentions`.
+   - Releases lacking memberships fail closed (HTTP 404 `:not_found` for public queries) and refuse activation (`activate!`).
+8. **Final Qualification Totals:**
+   - Automated test suite: **110 tests, 648 assertions, 0 failures, 0 errors, 0 skips**.
+   - Brakeman security scan: **0 active warnings, 3 ignored SQL warnings**.
+   - Single-command qualification `bin/verify`: **ALL 7 GATES PASS (EXIT 0)** against a clean baseline of 4 active approved postings.

@@ -119,6 +119,12 @@ class ProvenanceDomainModelTest < ActiveSupport::TestCase
       active: false
     )
 
+    rec = SourceRecord.create!(source_system: "ats", source_record_key: "rec-test-act", origin_class: "sanitized_historical")
+    sm = SourceMention.create!(source_record: rec, mention_key: "m1", source_kind: "official_employer")
+    rev = sm.source_revisions.create!(revision_digest: "d1", observed_at: Time.now.utc, title: "T", company: "C", location: "L")
+    ApprovedReleaseRevision.create!(approved_release: r1, source_revision: rev, snapshot_source_domain: "example.com")
+    ApprovedReleaseRevision.create!(approved_release: r2, source_revision: rev, snapshot_source_domain: "example.com")
+
     assert r1.reload.active
     assert_not r2.reload.active
 

@@ -9,7 +9,11 @@ class CanonicalPosting < ApplicationRecord
   has_many :potential_duplicates_as_a, class_name: "PotentialDuplicate", foreign_key: :posting_a_id, dependent: :destroy
   has_many :potential_duplicates_as_b, class_name: "PotentialDuplicate", foreign_key: :posting_b_id, dependent: :destroy
 
-  scope :active_approved, -> { joins(:approved_release).where(approved_releases: { active: true }) }
+  scope :active_approved, -> {
+    joins(:approved_release)
+      .where(approved_releases: { active: true })
+      .where("EXISTS (SELECT 1 FROM approved_release_revisions WHERE approved_release_revisions.approved_release_id = approved_releases.id)")
+  }
   scope :unapproved_staging, -> { left_outer_joins(:approved_release).where("approved_releases.id IS NULL OR approved_releases.active = false") }
 
   before_validation :generate_public_id, on: :create
@@ -28,13 +32,8 @@ class CanonicalPosting < ApplicationRecord
     if approved_release&.approved_release_revisions&.exists?
       source_revisions.joins(:approved_release_revisions)
                       .where(approved_release_revisions: { approved_release_id: approved_release_id })
-    elsif approved_release&.approved_at.present?
-      source_revisions.where(
-        "source_revisions.created_at <= :app_at AND (source_revisions.observed_at IS NULL OR source_revisions.observed_at <= :app_at)",
-        app_at: approved_release.approved_at + 1.second
-      )
     else
-      source_revisions
+      source_revisions.none
     end
   end
 

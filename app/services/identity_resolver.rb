@@ -44,14 +44,48 @@ class IdentityResolver
     latest_rev = mention.latest_revision
     return ResolveResult.new(status: :no_revisions, tier: nil) unless latest_rev
 
-    # Step 1: Detect candidate matches across strong tiers
-    tier1_candidates = find_tier1_candidates(mention, latest_rev)
-    tier2_candidates = find_tier2_candidates(mention, latest_rev)
-    tier3_candidates = find_tier3_candidates(mention, latest_rev)
+    # Step 1: Detect raw candidate matches across strong tiers
+    raw_t1 = raw_tier1_candidates(mention, latest_rev)
+    raw_t2 = raw_tier2_candidates(mention, latest_rev)
+    raw_t3 = raw_tier3_candidates(mention, latest_rev)
+
+    # Cross-signal contradiction detection:
+    # If distinct strong signals (req ID, clean URL, platform ID) identify different existing postings
+    t1_ids = raw_t1.map(&:id)
+    t2_ids = raw_t2.map(&:id)
+    t3_ids = raw_t3.map(&:id)
+
+    if (raw_t1.any? && raw_t2.any? && (t1_ids & t2_ids).empty?) ||
+       (raw_t1.any? && raw_t3.any? && (t1_ids & t3_ids).empty?) ||
+       (raw_t2.any? && raw_t3.any? && (t2_ids & t3_ids).empty?)
+      all_conflicting_ids = (t1_ids + t2_ids + t3_ids).uniq
+      return ResolveResult.new(
+        status: :identity_conflict,
+        tier: nil,
+        conflict_reason: "Cross-signal identity conflict: strong match tiers point to distinct postings: #{all_conflicting_ids.join(', ')}"
+      )
+    end
+
+    # Contradiction on matched candidate (e.g. matched by URL or Req ID but has conflicting identifiers)
+    all_raw = (raw_t1 + raw_t2 + raw_t3).uniq
+    all_raw.each do |cand|
+      if has_conflicting_identifiers?(mention, latest_rev, cand)
+        return ResolveResult.new(
+          status: :identity_conflict,
+          tier: nil,
+          conflict_reason: "Strong candidate #{cand.public_id} has conflicting identifiers with incoming observation"
+        )
+      end
+    end
+
+    # Filtered candidate matches
+    tier1_candidates = find_tier1_candidates(mention, latest_rev, raw_t1)
+    tier2_candidates = find_tier2_candidates(mention, latest_rev, raw_t2)
+    tier3_candidates = find_tier3_candidates(mention, latest_rev, raw_t3)
 
     strong_candidate_ids = (tier1_candidates + tier2_candidates + tier3_candidates).map(&:id).uniq
 
-    # Conflict check: If strong tiers point to different existing postings
+    # Conflict check: If surviving strong tiers point to different existing postings
     if strong_candidate_ids.size > 1
       return ResolveResult.new(
         status: :identity_conflict,
@@ -122,10 +156,8 @@ class IdentityResolver
 
   private
 
-  # Tier 1 (strong): Same verified employer identity and employer requisition ID
-  def find_tier1_candidates(mention, rev)
+  def raw_tier1_candidates(mention, rev)
     return [] unless mention.job_id.present? && rev.company.present?
-
     norm_company = rev.company.strip.downcase
     scope = candidate_posting_scope(mention)
 
@@ -137,46 +169,75 @@ class IdentityResolver
                               .map(&:canonical_posting)
                               .compact
                               .uniq
-
-    candidates.select { |p| scope.where(id: p.id).exists? && !has_conflicting_identifiers?(mention, rev, p) }
+    candidates.select { |p| scope.where(id: p.id).exists? }
   end
 
-  # Tier 2 (strong): Same canonicalized approved employer-host job URL + same employer
-  def find_tier2_candidates(mention, rev)
+  def raw_tier2_candidates(mention, rev)
     return [] unless rev.job_url.present? && rev.company.present?
-
     clean_url = Sanitizer.clean_url(rev.job_url)
     return [] unless clean_url.present? && specific_job_url?(clean_url)
-
+    norm_company = rev.company.strip.downcase
     scope = candidate_posting_scope(mention)
+
     candidates = SourceRevision.joins(:source_mention)
                                .where.not(source_mentions: { id: mention.id })
                                .where.not(source_mentions: { canonical_posting_id: nil })
                                .where(job_url: clean_url)
+                               .where("LOWER(source_revisions.company) = ?", norm_company)
                                .map { |r| r.source_mention.canonical_posting }
                                .compact
                                .uniq
+    candidates.select { |p| scope.where(id: p.id).exists? }
+  end
+
+  def raw_tier3_candidates(mention, rev)
+    return [] unless mention.source_domain.present? && mention.job_id.present? && rev.company.present?
+    norm_company = rev.company.strip.downcase
+    scope = candidate_posting_scope(mention)
+
+    candidates = SourceMention.joins(:source_revisions)
+                              .where.not(id: mention.id)
+                              .where.not(canonical_posting_id: nil)
+                              .where(source_domain: mention.source_domain, job_id: mention.job_id)
+                              .where("LOWER(source_revisions.company) = ?", norm_company)
+                              .map(&:canonical_posting)
+                              .compact
+                              .uniq
+    candidates.select { |p| scope.where(id: p.id).exists? }
+  end
+
+  # Tier 1 (strong): Same verified employer identity and employer requisition ID
+  def find_tier1_candidates(mention, rev, raw_candidates = nil)
+    candidates = raw_candidates || raw_tier1_candidates(mention, rev)
+    return [] if candidates.empty?
+
+    # QA4-02: Verified employer requisition authority required on at least one side
+    mention_is_official = SourceAuthority.verified_official?(mention, rev.company)
 
     candidates.select do |p|
-      scope.where(id: p.id).exists? &&
-        !has_conflicting_identifiers?(mention, rev, p) &&
+      (mention_is_official || p.source_mentions.any? { |sm| SourceAuthority.verified_official?(sm, p.company) }) &&
+        !has_conflicting_identifiers?(mention, rev, p)
+    end
+  end
+
+  # Tier 2 (strong): Same canonicalized approved employer-host job URL + same employer
+  def find_tier2_candidates(mention, rev, raw_candidates = nil)
+    candidates = raw_candidates || raw_tier2_candidates(mention, rev)
+    return [] if candidates.empty?
+
+    clean_url = Sanitizer.clean_url(rev.job_url)
+    candidates.select do |p|
+      !has_conflicting_identifiers?(mention, rev, p) &&
         tier2_strong_match?(mention, rev, p, clean_url)
     end
   end
 
   # Tier 3 (strong, source-scoped): Same stable platform posting ID on same vetted platform + same employer
-  def find_tier3_candidates(mention, rev)
-    return [] unless mention.source_domain.present? && mention.job_id.present? && rev.company.present?
+  def find_tier3_candidates(mention, rev, raw_candidates = nil)
+    candidates = raw_candidates || raw_tier3_candidates(mention, rev)
+    return [] if candidates.empty?
 
-    scope = candidate_posting_scope(mention)
-    candidates = SourceMention.where.not(id: mention.id)
-                              .where.not(canonical_posting_id: nil)
-                              .where(source_domain: mention.source_domain, job_id: mention.job_id)
-                              .map(&:canonical_posting)
-                              .compact
-                              .uniq
-
-    candidates.select { |p| scope.where(id: p.id).exists? && !has_conflicting_identifiers?(mention, rev, p) }
+    candidates.select { |p| !has_conflicting_identifiers?(mention, rev, p) }
   end
 
   def candidate_posting_scope(mention)
@@ -339,6 +400,28 @@ class IdentityResolver
             other,
             reason_code: "similar_company_title_location",
             evaluation_digest: "tier4-uncertain-match"
+          )
+        end
+      end
+    end
+
+    # Check 3: Same company & shared unverified job_id (where Tier 1 merge was withheld)
+    posting_job_ids = posting.source_mentions.pluck(:job_id).compact.map(&:strip).reject(&:empty?)
+    if posting_job_ids.any?
+      shared_id_postings = CanonicalPosting.joins(:source_mentions)
+                                           .where.not(id: posting.id)
+                                           .where("LOWER(canonical_postings.company) = ?", norm_company)
+                                           .where(source_mentions: { job_id: posting_job_ids })
+                                           .distinct
+      shared_id_postings.find_each do |other|
+        a_id, b_id = [posting.id, other.id].sort
+        existing = PotentialDuplicate.find_by(posting_a_id: a_id, posting_b_id: b_id)
+        unless existing
+          PotentialDuplicate.record_pair!(
+            posting,
+            other,
+            reason_code: "unverified_shared_job_id",
+            evaluation_digest: "tier4-unverified-id-overlap"
           )
         end
       end

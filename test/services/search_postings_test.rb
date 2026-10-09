@@ -92,11 +92,23 @@ class SearchPostingsTest < ActiveSupport::TestCase
     )
 
     [@post_a, @post_b, @post_c, @post_d].each_with_index do |post, idx|
-      SourceMention.create!(
+      sm = SourceMention.create!(
         source_record: @record,
         canonical_posting: post,
         mention_key: "rec_search_01:m_#{idx}",
         source_kind: "official_employer"
+      )
+      rev = sm.source_revisions.create!(
+        revision_digest: "d_search_#{idx}",
+        observed_at: post.last_observed_at,
+        title: post.title,
+        company: post.company,
+        location: post.location
+      )
+      ApprovedReleaseRevision.create!(
+        approved_release: @release,
+        source_revision: rev,
+        snapshot_source_domain: "careers.example.com"
       )
     end
   end

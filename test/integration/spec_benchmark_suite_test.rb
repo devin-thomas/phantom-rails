@@ -198,6 +198,9 @@ class SpecBenchmarkSuiteTest < ActionDispatch::IntegrationTest
       salary_period: "year"
     )
 
+    ApprovedReleaseRevision.create!(approved_release: release, source_revision: rev_off, snapshot_source_domain: "alphashield.com", snapshot_origin_class: "sanitized_historical")
+    ApprovedReleaseRevision.create!(approved_release: release, source_revision: rev_brd, snapshot_source_domain: "aggregator.com", snapshot_origin_class: "sanitized_historical")
+
     FieldReconciler.reconcile!(post)
     post.reload
 

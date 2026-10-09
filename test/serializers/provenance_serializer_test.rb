@@ -110,6 +110,19 @@ class ProvenanceSerializerTest < ActiveSupport::TestCase
       source_revision: @rev_official,
       selection_reason: "verified_official_override"
     )
+
+    ApprovedReleaseRevision.create!(
+      approved_release: @release,
+      source_revision: @rev_official,
+      snapshot_source_domain: "apextelecom.com",
+      snapshot_origin_class: "sanitized_historical"
+    )
+    ApprovedReleaseRevision.create!(
+      approved_release: @release,
+      source_revision: @rev_board,
+      snapshot_source_domain: "aggregator.com",
+      snapshot_origin_class: "sanitized_historical"
+    )
   end
 
   test "serializes chosen field value, alternative, source timestamp, and selection reason" do

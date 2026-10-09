@@ -183,16 +183,21 @@ class BatchImporter
           mention.update!(job_id: item["job_id"]) if mention.job_id.blank? && item["job_id"].present?
         end
 
-        rev_digest = SourceRevision.compute_digest(item)
-        existing_rev = mention.source_revisions.find_by(revision_digest: rev_digest)
+        v2_digest = SourceRevision.compute_digest(item, version: "v2")
+        v1_digest = SourceRevision.compute_digest(item, version: "v1")
+        existing_rev = mention.source_revisions.find_by(revision_digest: [v2_digest, v1_digest])
 
         if existing_rev
+          if existing_rev.revision_digest == v1_digest && existing_rev.revision_digest != v2_digest
+            existing_rev.update_columns(revision_digest: v2_digest, digest_version: "v2")
+          end
           unchanged += 1
         else
           is_first = mention.source_revisions.empty?
 
           mention.source_revisions.create!(
-            revision_digest: rev_digest,
+            revision_digest: v2_digest,
+            digest_version: "v2",
             observed_at: Time.iso8601(item["observed_at"]),
             posted_at: item["posted_at"] ? Time.iso8601(item["posted_at"]) : nil,
             title: item["title"],
@@ -216,16 +221,26 @@ class BatchImporter
           end
 
           # Resolve canonical posting identity deterministically for new or updated revisions
-          IdentityResolver.resolve_mention(mention)
+          res = IdentityResolver.resolve_mention(mention)
+          if res.status == :identity_conflict
+            raise "identity_conflict: #{res.conflict_reason}"
+          end
         end
       end
     rescue StandardError => e
       idx = raw_item["_batch_index"] || -1
       ident = item ? "#{item['source_record_key']}/#{item['mention_key']}" : "#{raw_item['source_record_key']}/#{raw_item['mention_key']}"
+      code = if e.message.start_with?("identity_conflict")
+        "identity_conflict"
+      elsif e.message.start_with?("origin_class_conflict")
+        "origin_class_conflict"
+      else
+        "item_persistence_error"
+      end
       invalid_errors << {
         item_index: idx,
         item_identifier: ident,
-        error_code: "item_persistence_error",
+        error_code: code,
         error_message: e.message
       }
     end

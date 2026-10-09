@@ -63,6 +63,22 @@ class Api::V1::PostingsControllerTest < ActionDispatch::IntegrationTest
       job_id: "job_100"
     )
 
+    @approved_rev = SourceRevision.create!(
+      source_mention: @mention,
+      revision_digest: "digest_postings_001",
+      observed_at: 2.days.ago,
+      title: "Senior Rails Engineer",
+      company: "Acme Corp",
+      location: "San Francisco, CA"
+    )
+
+    ApprovedReleaseRevision.create!(
+      approved_release: @release,
+      source_revision: @approved_rev,
+      snapshot_source_domain: "example.com",
+      snapshot_origin_class: "sanitized_historical"
+    )
+
     @unapproved_mention = SourceMention.create!(
       source_record: @unapproved_record,
       canonical_posting: @unapproved_posting,

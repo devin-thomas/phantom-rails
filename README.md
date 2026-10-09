@@ -4,7 +4,7 @@
 
 [![Rails 8.1](https://img.shields.io/badge/Rails-8.1.4-CC0000.svg?logo=rubyonrails)](https://rubyonrails.org)
 [![PostgreSQL 16](https://img.shields.io/badge/PostgreSQL-16--alpine-336791.svg?logo=postgresql)](https://www.postgresql.org)
-[![Tests](https://img.shields.io/badge/Tests-103%20passed%20%2F%20615%20assertions-success.svg)](docs/release-evidence.md)
+[![Tests](https://img.shields.io/badge/Tests-110%20passed%20%2F%20648%20assertions-success.svg)](docs/release-evidence.md)
 [![Status](https://img.shields.io/badge/Release-CORE--LOCAL%20Verified-blue.svg)](docs/release-evidence.md)
 [![OpenAPI 3.1](https://img.shields.io/badge/OpenAPI-3.1.0-85EA2D.svg?logo=openapiinitiative)](public/openapi.json)
 
@@ -22,7 +22,7 @@ docker compose up -d
 ```
 
 ### 2. Run the Single-Command Qualification Suite
-Run all verification gates (database connection, migrations, approved seeding, full 103-test suite, OpenAPI 3.1 schema, secret/canary scan, and zero-CDN audit):
+Run all verification gates (database connection, migrations, approved seeding, full 110-test suite, OpenAPI 3.1 schema, secret/canary scan, and zero-CDN audit):
 ```bash
 docker compose exec web ruby bin/verify
 ```

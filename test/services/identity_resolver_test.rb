@@ -11,6 +11,7 @@ class IdentityResolverTest < ActiveSupport::TestCase
           "source_record_key" => "rec-employer-01",
           "mention_key" => "m1",
           "source_system" => "ats",
+          "source_domain" => "careers.acme.example.com",
           "observed_at" => "2026-09-20T10:00:00Z",
           "source_kind" => "official_employer",
           "job_id" => "REQ-101",
