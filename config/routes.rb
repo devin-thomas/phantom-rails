@@ -5,6 +5,7 @@ Rails.application.routes.draw do
   # Public Documentation & OpenAPI Spec
   get "openapi.json", to: "docs#openapi"
   get "docs", to: "docs#index"
+  get "playground", to: "playground#index"
 
   # Public Read API v1
   namespace :api do

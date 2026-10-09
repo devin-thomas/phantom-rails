@@ -1,6 +1,6 @@
 # PHR-015 — Reviewer search playground
 
-**Status:** Not started  
+**Status:** Complete  
 **Lane:** Core engineering / qualification  
 **Dependencies:** PHR-014
 
@@ -11,15 +11,15 @@ Build a polished but bounded frontend consuming the live API rather than fixture
 ## Scope
 
 - Search and compound filters, sort, load/empty/errors, result cards, origin badges, pagination and detail/provenance inspector.
-- - Same-origin GET requests; HTML escaping, mobile width 320px, keyboard focus and reduced motion; direct link to docs.
-- - Empty/error states must be honest; no user sign-in, data writes, external provider calls or fake success.
+- Same-origin GET requests; HTML escaping, mobile width 320px, keyboard focus and reduced motion; direct link to docs.
+- Empty/error states must be honest; no user sign-in, data writes, external provider calls or fake success.
 
 ## Acceptance Criteria
 
-- [ ] Playground exercises real API on local/hosted server and preserves query/filter state across cursors.
-- [ ] A reviewer can inspect why two mentions merged, why another pair did not, and why a field was overridden.
-- [ ] Accessibility tests cover keyboard, focus, contrast, reduced motion and 320/390px viewports.
-- [ ] API 503/400 and zero matches display distinct, accurate messages without fallback mock results.
+- [x] Playground exercises real API on local/hosted server and preserves query/filter state across cursors.
+- [x] A reviewer can inspect why two mentions merged, why another pair did not, and why a field was overridden.
+- [x] Accessibility tests cover keyboard, focus, contrast, reduced motion and 320/390px viewports.
+- [x] API 503/400 and zero matches display distinct, accurate messages without fallback mock results.
 
 ## Test / Evidence
 

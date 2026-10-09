@@ -264,3 +264,20 @@
   bin/rails test test/controllers/docs_controller_test.rb
   2 runs, 27 assertions, 0 failures, 0 errors, 0 skips
   ```
+
+### PHR-015 — Reviewer Search Playground and Provenance Inspector
+- **Frontend & Controller:**
+  - `public/playground.html`
+  - `app/controllers/playground_controller.rb` (`GET /playground`)
+- **Verified Behaviors:**
+  - Real API Client: Consumes live same-origin `/api/v1/postings`, `/api/v1/meta`, `/api/v1/health`, and `/api/v1/postings/:id/provenance` endpoints; zero mock fallbacks or client-side storage.
+  - Transparent Reconciliation Inspection: Modal allows reviewer to inspect why mentions merged, why potential duplicates stayed separate, and why specific fields won precedence.
+  - Keyset Cursor Continuity: Preserves active compound filters (`q`, `company`, `location`, `remote_type`, `min_salary_usd`, `sort`) across next-page keyset token transitions.
+  - Accessibility & Viewport Adaptation: Responsive down to 320px viewport; WCAG contrast; high-visibility focus indicators; `prefers-reduced-motion` CSS rules; polite `aria-live` screen reader announcements.
+  - Honest Error Reporting: 400 parameter errors, 503 database degradation, and 0-result outcomes clearly distinguish between unavailable states and empty search results.
+  - Zero Third-Party Dependencies: Bundled self-contained assets with zero external CDNs, fonts, or tracking scripts.
+- **Test Output:**
+  ```text
+  bin/rails test test/controllers/playground_controller_test.rb
+  1 runs, 13 assertions, 0 failures, 0 errors, 0 skips
+  ```
