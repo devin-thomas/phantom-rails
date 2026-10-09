@@ -17,11 +17,11 @@ class ProvenanceSerializer
       "company" => @posting.company,
       "location" => @posting.location,
       "origin_class" => origin_class,
-      "potential_duplicate" => @posting.potential_duplicate,
+      "potential_duplicate" => @posting.has_active_approved_potential_duplicates?,
       "potential_duplicates" => render_potential_duplicates,
       "source_mentions" => render_mentions,
       "merge_evidence" => {
-        "total_mentions" => @posting.source_mentions.count,
+        "total_mentions" => render_mentions.size,
         "mentions" => render_mentions
       },
       "field_reconciliation" => render_field_reconciliation
@@ -31,9 +31,10 @@ class ProvenanceSerializer
   private
 
   def render_potential_duplicates
-    @posting.potential_duplicate_records.map do |pd|
+    active_ids = CanonicalPosting.active_approved.pluck(:id)
+    @posting.potential_duplicate_records.includes(:posting_a, :posting_b).map do |pd|
       other = (pd.posting_a_id == @posting.id) ? pd.posting_b : pd.posting_a
-      next unless other
+      next unless other && active_ids.include?(other.id)
 
       {
         "id" => other.public_id,
@@ -45,7 +46,11 @@ class ProvenanceSerializer
   end
 
   def render_mentions
-    @posting.source_mentions.order(:id).map do |sm|
+    scope = @posting.source_mentions.joins(:source_record)
+    if @posting.approved_release_id.present?
+      scope = scope.where(source_records: { approved_release_id: @posting.approved_release_id })
+    end
+    scope.order(:id).map do |sm|
       {
         "mention_key" => sm.mention_key,
         "source_kind" => sm.source_kind,
@@ -62,8 +67,12 @@ class ProvenanceSerializer
     # Map of field selections
     selections = @posting.field_selections.includes(source_revision: :source_mention).index_by(&:field_name)
 
-    # All unique revisions for this posting
-    all_revisions = @posting.source_revisions.includes(:source_mention).order(observed_at: :desc, id: :desc)
+    # All unique revisions for this posting within approved release scope
+    rev_scope = @posting.source_revisions.joins(source_mention: :source_record)
+    if @posting.approved_release_id.present?
+      rev_scope = rev_scope.where(source_records: { approved_release_id: @posting.approved_release_id })
+    end
+    all_revisions = rev_scope.includes(:source_mention).order(observed_at: :desc, id: :desc)
 
     %w[title company location remote_type employment_type salary summary_excerpt job_url].each do |field|
       selection = selections[field]

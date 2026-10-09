@@ -19,7 +19,7 @@ class PostingSerializer
       "job_url" => posting.job_url,
       "relevance_score" => score,
       "origin_class" => origin_class,
-      "potential_duplicate" => posting.potential_duplicate,
+      "potential_duplicate" => posting.has_active_approved_potential_duplicates?,
       "provenance_url" => "/api/v1/postings/#{posting.public_id}/provenance",
       "first_observed_at" => posting.first_observed_at&.iso8601,
       "last_observed_at" => posting.last_observed_at&.iso8601

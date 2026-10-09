@@ -34,10 +34,11 @@ begin
     manifest_file = Rails.root.join("fixtures", "public-approved", "approved-manifest-v1.json")
     res = ApprovedReleaseManager.publish_files!(batch_file, manifest_file)
     raise "Seed failed: #{res.errors.join(', ')}" unless res.success
+    raise "Expected exactly 4 active postings, got #{res.postings_count}" unless res.postings_count == 4
   end
 
   step("Running complete automated test suite") do
-    test_result = system("bin/rails test")
+    test_result = system("ruby bin/rails test")
     raise "Test suite failed!" unless test_result
   end
 

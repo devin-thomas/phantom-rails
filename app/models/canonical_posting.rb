@@ -27,6 +27,15 @@ class CanonicalPosting < ApplicationRecord
     CanonicalPosting.where(id: ids.uniq)
   end
 
+  def active_approved_potential_duplicates
+    ids = potential_duplicates_as_a.pluck(:posting_b_id) + potential_duplicates_as_b.pluck(:posting_a_id)
+    CanonicalPosting.active_approved.where(id: ids.uniq)
+  end
+
+  def has_active_approved_potential_duplicates?
+    active_approved_potential_duplicates.exists?
+  end
+
   def potential_duplicate_records
     PotentialDuplicate.where("posting_a_id = :id OR posting_b_id = :id", id: id)
   end

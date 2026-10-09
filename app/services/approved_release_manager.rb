@@ -33,8 +33,8 @@ class ApprovedReleaseManager
     ActiveRecord::Base.transaction do
       # Ingest batch
       import_report = BatchImporter.import_string(batch_content)
-      if import_report.status == "failed"
-        raise ActiveRecord::Rollback, "Batch import failed: #{import_report.errors.inspect}"
+      if import_report.status != "complete"
+        raise "Release publication rejected: candidate batch must import with complete status; got '#{import_report.status}' (#{import_report.invalid_count} invalid items)"
       end
 
       # Find or create ApprovedRelease record
@@ -48,9 +48,12 @@ class ApprovedReleaseManager
       )
       release.save!
 
-      # Associate SourceRecords from this batch with the release
-      SourceRecord.where(source_record_key: import_report_keys(batch_content))
-                  .update_all(approved_release_id: release.id)
+      # Associate SourceRecords from this batch with the release using [source_system, source_record_key]
+      pairs = import_report_pairs(batch_content)
+      pairs.each do |sys, key|
+        SourceRecord.where(source_system: sys, source_record_key: key)
+                    .update_all(approved_release_id: release.id)
+      end
 
       # Associate CanonicalPostings with the release
       posting_ids = CanonicalPosting.joins(source_mentions: :source_record)
@@ -91,9 +94,9 @@ class ApprovedReleaseManager
 
   private
 
-  def import_report_keys(batch_content)
+  def import_report_pairs(batch_content)
     data = JSON.parse(batch_content)
-    data["items"].map { |i| i["source_record_key"] }
+    data["items"].map { |i| [i["source_system"], i["source_record_key"]] }.uniq
   rescue StandardError
     []
   end

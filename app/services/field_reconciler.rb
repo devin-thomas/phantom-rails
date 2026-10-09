@@ -17,10 +17,12 @@ class FieldReconciler
   end
 
   def reconcile!
-    revisions = SourceRevision.joins(:source_mention)
-                              .where(source_mentions: { canonical_posting_id: @posting.id })
-                              .includes(:source_mention)
-                              .to_a
+    revisions_scope = SourceRevision.joins(source_mention: :source_record)
+                                    .where(source_mentions: { canonical_posting_id: @posting.id })
+    if @posting.approved_release_id.present?
+      revisions_scope = revisions_scope.where(source_records: { approved_release_id: @posting.approved_release_id })
+    end
+    revisions = revisions_scope.includes(source_mention: :source_record).to_a
 
     return ReconciliationResult.new(chosen_fields: {}, selections: {}, conflicts: {}) if revisions.empty?
 
@@ -141,12 +143,16 @@ class FieldReconciler
 
   def select_winning_revision(candidates, _field_name, has_conflict)
     # Check for verified official employer exception:
-    official_candidates = candidates.select { |r| r.source_mention.source_kind == "official_employer" }
-    third_party_candidates = candidates.select { |r| r.source_mention.source_kind != "official_employer" }
+    official_candidates = candidates.select do |r|
+      SourceAuthority.verified_official?(r.source_mention, r.company)
+    end
+    third_party_candidates = candidates.reject do |r|
+      SourceAuthority.verified_official?(r.source_mention, r.company)
+    end
 
     if official_candidates.any? && third_party_candidates.any? && has_conflict
-      # If official employer disagrees with a newer third-party observation:
-      # Official employer listing overrides newer third-party observation!
+      # If verified official employer disagrees with a newer third-party observation:
+      # Verified official employer listing overrides newer third-party observation!
       official_winner = sort_candidates(official_candidates).first
       newer_third_party = third_party_candidates.any? { |tp| tp.observed_at > official_winner.observed_at && yield(tp) != yield(official_winner) }
       if newer_third_party
@@ -163,15 +169,15 @@ class FieldReconciler
 
   # Deterministic tie-breaking:
   # 1. observed_at DESC
-  # 2. authority rank ASC (official employer rank 1)
+  # 2. authority rank ASC (verified official rank 1)
   # 3. revision_digest ASC (lexicographical)
   def sort_candidates(candidates)
     candidates.sort do |a, b|
       time_cmp = b.observed_at <=> a.observed_at
       next time_cmp unless time_cmp == 0
 
-      rank_a = AUTHORITY_RANKS[a.source_mention.source_kind] || 99
-      rank_b = AUTHORITY_RANKS[b.source_mention.source_kind] || 99
+      rank_a = SourceAuthority.effective_authority_rank(a.source_mention, a.company)
+      rank_b = SourceAuthority.effective_authority_rank(b.source_mention, b.company)
       rank_cmp = rank_a <=> rank_b
       next rank_cmp unless rank_cmp == 0
 

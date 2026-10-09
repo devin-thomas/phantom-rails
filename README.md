@@ -4,9 +4,9 @@
 
 [![Rails 8.1](https://img.shields.io/badge/Rails-8.1.4-CC0000.svg?logo=rubyonrails)](https://rubyonrails.org)
 [![PostgreSQL 16](https://img.shields.io/badge/PostgreSQL-16--alpine-336791.svg?logo=postgresql)](https://www.postgresql.org)
-[![Tests](https://img.shields.io/badge/Tests-85%20passed%20%2F%20481%20assertions-success.svg)](file:///docs/release-evidence.md)
-[![Status](https://img.shields.io/badge/Release-CORE--LOCAL%20Verified-blue.svg)](file:///docs/release-evidence.md)
-[![OpenAPI 3.1](https://img.shields.io/badge/OpenAPI-3.1.0-85EA2D.svg?logo=openapiinitiative)](file:///public/openapi.json)
+[![Tests](https://img.shields.io/badge/Tests-93%20passed%20%2F%20521%20assertions-success.svg)](docs/release-evidence.md)
+[![Status](https://img.shields.io/badge/Release-CORE--LOCAL%20Verified-blue.svg)](docs/release-evidence.md)
+[![OpenAPI 3.1](https://img.shields.io/badge/OpenAPI-3.1.0-85EA2D.svg?logo=openapiinitiative)](public/openapi.json)
 
 Phantom Rails is a standalone Ruby on Rails 8.1 + PostgreSQL 16 search API, interactive documentation explorer, and accessible reviewer playground. It demonstrates production-grade job posting reconciliation, data provenance, and explainable full-text search without data corruption, silent overrides, or tracking leaks.
 
@@ -22,20 +22,20 @@ docker compose up -d
 ```
 
 ### 2. Run the Single-Command Qualification Suite
-Run all verification gates (database connection, migrations, approved seeding, full 85-test suite, OpenAPI 3.1 schema, secret/canary scan, and zero-CDN audit):
+Run all verification gates (database connection, migrations, approved seeding, full 93-test suite, OpenAPI 3.1 schema, secret/canary scan, and zero-CDN audit):
 ```bash
 docker compose exec web ruby bin/verify
 ```
-*Expected output: All 7 gates PASS with Exit 0.*
+*Expected output: All 7 gates PASS with Exit 0 against a clean baseline of 4 active approved postings.*
 
 ### 3. Reviewer Surfaces
 - **Interactive Documentation**: [http://localhost:3000/docs](http://localhost:3000/docs) (Zero-CDN, self-contained interactive OpenAPI 3.1 explorer)
 - **Reviewer Search Playground**: [http://localhost:3000/playground](http://localhost:3000/playground) (Accessible UI, live search, provenance inspection drawer)
-- **OpenAPI 3.1 Specification**: [http://localhost:3000/openapi.json](http://localhost:3000/openapi.json)
+- **OpenAPI 3.1 Specification**: [public/openapi.json](public/openapi.json)
 - **Technical Case Study**: [docs/case-study.md](docs/case-study.md)
 - **Release Evidence Ledger**: [docs/release-evidence.md](docs/release-evidence.md)
 
-### 4. Sample API Queries via cURL
+### 4. Sample API Queries
 ```bash
 # Check service health and database connectivity
 curl http://localhost:3000/api/v1/health
@@ -47,7 +47,15 @@ curl http://localhost:3000/api/v1/meta
 curl "http://localhost:3000/api/v1/postings?q=engineer&remote_type=remote"
 
 # Inspect data provenance, field conflict resolution, and potential duplicate links
-curl http://localhost:3000/api/v1/postings/post_576597ae5b396d9e/provenance
+# (Queries a live posting ID dynamically from the search endpoint)
+POSTING_ID=$(curl -s "http://localhost:3000/api/v1/postings?limit=1" | grep -o '"id":"[^"]*' | head -1 | cut -d'"' -f4)
+curl "http://localhost:3000/api/v1/postings/$POSTING_ID/provenance"
+```
+
+For Windows PowerShell reviewers:
+```powershell
+$id = (Invoke-RestMethod "http://localhost:3000/api/v1/postings?limit=1").data[0].id
+Invoke-RestMethod "http://localhost:3000/api/v1/postings/$id/provenance"
 ```
 
 ---

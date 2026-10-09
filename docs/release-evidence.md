@@ -357,9 +357,9 @@
   - **Environment:** Docker Compose (`web`: Rails 8.1, Puma 7.2; `db`: PostgreSQL 16 Alpine)
   - **Local Endpoints Verified:**
     - `GET http://localhost:3000/api/v1/health` -> `200 OK` (Latency: ~58ms, DB: connected, approved_release: true)
-    - `GET http://localhost:3000/api/v1/meta` -> `200 OK` (Corpus revision: `7cd7222648a8...`, Active: 8 postings)
-    - `GET http://localhost:3000/api/v1/postings?q=engineer` -> `200 OK` (Full-text search, explainable scores: 9, 8, potential duplicate flags active)
-    - `GET http://localhost:3000/api/v1/postings/post_576597ae5b396d9e/provenance` -> `200 OK` (Full audit trail, 3 potential duplicates, zero PII leaks)
+    - `GET http://localhost:3000/api/v1/meta` -> `200 OK` (Corpus revision: active, 4 canonical postings from 5 approved source items)
+    - `GET http://localhost:3000/api/v1/postings?q=engineer` -> `200 OK` (Full-text search, explainable scores, duplicate flags active)
+    - `GET http://localhost:3000/api/v1/postings/:id/provenance` -> `200 OK` (Full audit trail, candidate alternatives, zero PII leaks)
     - `GET http://localhost:3000/docs` -> `200 OK` (Self-contained interactive OpenAPI documentation)
     - `GET http://localhost:3000/playground` -> `200 OK` (Accessible reviewer search playground)
     - `GET http://localhost:3000/openapi.json` -> `200 OK` (OpenAPI 3.1 contract)
@@ -379,3 +379,36 @@
   - Explicitly stated that real candidate materials and private Outlook credentials were never copied into the repository.
   - Confirmed optional SerpApi tickets (PHR-020, PHR-021) are deferred behind owner authorization to prevent accidental third-party credit card charges.
   - Strictly verified that **no automated email has been sent**.
+
+---
+
+## Post-Audit QA Remediation & Hardening (October 9, 2026)
+
+Following an independent QA code audit, the following critical guarantees were hardened with dedicated regression tests in `test/integration/qa_audit_remediation_test.rb`:
+
+1. **GitHub Actions CI Permissions (P0 Blocker Resolved):**
+   - Tracked all `bin/*` scripts with executable bit `100755` in the Git tree (`git update-index --chmod=+x bin/*`).
+   - Hardened `.github/workflows/ci.yml` to explicitly run `chmod +x bin/*` and invoke scripts via Ruby (`ruby bin/brakeman`, `ruby bin/rails`, `ruby bin/verify`).
+
+2. **Public Data Isolation & Approved Release Immutability (P0 Resolved):**
+   - **Staging Mutation Barrier:** In `IdentityResolver` and `FieldReconciler`, unapproved staging imports for a mention belonging to an approved posting are strictly blocked from calling `FieldReconciler.reconcile!` or mutating the approved posting's `title`, `salary`, `search_vector`, or `field_selections`.
+   - **Provenance Privacy Filter:** `ProvenanceSerializer` now filters `potential_duplicates` and `source_mentions` to only include active approved records (`CanonicalPosting.active_approved`). Unapproved staging postings can never leak identifying details through public provenance responses.
+   - **Composite Key Matching:** `ApprovedReleaseManager` now scopes source records using composite `[source_system, source_record_key]` pairs rather than `source_record_key` alone.
+
+3. **Conservative Duplicate Resolution Hardening (P1 Resolved):**
+   - **Employer Identity Enforcement:** Tier 2 (job URL) and Tier 3 (platform ID) matching now enforce strict normalized employer matching (`candidate.company == rev.company`). Different employers sharing a generic URL or platform ID are never merged.
+   - **Conflicting Requisition IDs:** Conflicting employer requisition IDs (e.g. `REQ-101` vs `REQ-102`) or incompatible URLs return `:identity_conflict` and strictly prevent merging.
+
+4. **Source Authority Verification (P1 Resolved):**
+   - Implemented `SourceAuthority` service (`app/services/source_authority.rb`) distinguishing claimed `source_kind` from operator-verified authority.
+   - Third parties claiming `source_kind: "official_employer"` on unverified domains are treated as untrusted and cannot trigger `verified_official_override`.
+
+5. **Release Gate & Accounting Invariants (P1 Resolved):**
+   - `ReleaseGate.evaluate` and `ApprovedReleaseManager.publish!` now strictly reject any candidate batch containing invalid items (must be 100% valid; partial status rejected for release).
+   - `BatchImporter` now correctly counts in-batch collapsed duplicate items as `unchanged_count`, guaranteeing the invariant: `total_input == inserted + updated + unchanged + invalid`.
+   - `schemas/public-release-v1.schema.json` explicitly documents `approval_signature` as an operator-verified checksum confirmation token.
+
+6. **Clean-Database Baseline Verification (P2 Resolved):**
+   - Clean database baseline initialized from `approved-batch-v1.json` (5 source items) produces exactly **4 active approved canonical postings** (Items 1 & 2 merged under Tier 1, Items 4 & 5 linked as Tier 4 potential duplicates).
+   - Automated suite expanded to **93 tests, 521 assertions, 0 failures, 0 errors, 0 skips**.
+   - Single-command verifier `bin/verify` enforces the exact 4-posting baseline and exits with Code 0.

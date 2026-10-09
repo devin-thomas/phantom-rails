@@ -1,3 +1,7 @@
+# frozen_string_literal: true
+
+require "uri"
+
 class IdentityResolver
   ResolveResult = Struct.new(:canonical_posting, :tier, :status, :potential_duplicates_found, :conflict_reason, keyword_init: true)
 
@@ -17,6 +21,17 @@ class IdentityResolver
   def resolve(mention)
     if mention.canonical_posting_id.present?
       posting = mention.canonical_posting
+      # Immutable approved projection guard:
+      # If posting belongs to an approved release, unapproved staging imports MUST NOT mutate it!
+      if posting.approved_release_id.present?
+        return ResolveResult.new(
+          canonical_posting: posting,
+          tier: 0,
+          status: :resolved,
+          potential_duplicates_found: posting.has_active_approved_potential_duplicates?
+        )
+      end
+
       FieldReconciler.reconcile!(posting)
       return ResolveResult.new(
         canonical_posting: posting,
@@ -61,7 +76,8 @@ class IdentityResolver
 
     if matched_posting
       mention.update!(canonical_posting: matched_posting)
-      FieldReconciler.reconcile!(matched_posting)
+      # Only reconcile if posting is not part of an immutable approved release
+      FieldReconciler.reconcile!(matched_posting) unless matched_posting.approved_release_id.present?
       check_and_record_potential_duplicates(matched_posting)
       return ResolveResult.new(
         canonical_posting: matched_posting,
@@ -86,7 +102,8 @@ class IdentityResolver
       summary_excerpt: latest_rev.summary_excerpt,
       job_url: latest_rev.job_url,
       first_observed_at: first_obs,
-      last_observed_at: first_obs
+      last_observed_at: first_obs,
+      approved_release_id: mention.source_record&.approved_release_id
     )
 
     mention.update!(canonical_posting: new_posting)
@@ -109,43 +126,100 @@ class IdentityResolver
   def find_tier1_candidates(mention, rev)
     return [] unless mention.job_id.present? && rev.company.present?
 
-    # Find postings that have an official employer mention with same job_id and company
-    SourceMention.joins(:source_revisions)
-                 .where.not(id: mention.id)
-                 .where.not(canonical_posting_id: nil)
-                 .where(source_kind: "official_employer", job_id: mention.job_id)
-                 .where("LOWER(source_revisions.company) = ?", rev.company.strip.downcase)
-                 .map(&:canonical_posting)
-                 .compact
-                 .uniq
+    norm_company = rev.company.strip.downcase
+    scope = candidate_posting_scope(mention)
+
+    candidates = SourceMention.joins(:source_revisions)
+                              .where.not(id: mention.id)
+                              .where.not(canonical_posting_id: nil)
+                              .where(job_id: mention.job_id)
+                              .where("LOWER(source_revisions.company) = ?", norm_company)
+                              .map(&:canonical_posting)
+                              .compact
+                              .uniq
+
+    candidates.select { |p| scope.where(id: p.id).exists? && !has_conflicting_identifiers?(mention, rev, p) }
   end
 
-  # Tier 2 (strong): Same canonicalized approved employer-host job URL
+  # Tier 2 (strong): Same canonicalized approved employer-host job URL + same employer
   def find_tier2_candidates(mention, rev)
-    return [] unless rev.job_url.present?
+    return [] unless rev.job_url.present? && rev.company.present?
 
     clean_url = Sanitizer.clean_url(rev.job_url)
-    return [] unless clean_url.present?
+    return [] unless clean_url.present? && specific_job_url?(clean_url)
 
-    SourceRevision.joins(:source_mention)
-                  .where.not(source_mentions: { id: mention.id })
-                  .where.not(source_mentions: { canonical_posting_id: nil })
-                  .where(job_url: clean_url)
-                  .map { |r| r.source_mention.canonical_posting }
-                  .compact
-                  .uniq
+    scope = candidate_posting_scope(mention)
+    candidates = SourceRevision.joins(:source_mention)
+                               .where.not(source_mentions: { id: mention.id })
+                               .where.not(source_mentions: { canonical_posting_id: nil })
+                               .where(job_url: clean_url)
+                               .map { |r| r.source_mention.canonical_posting }
+                               .compact
+                               .uniq
+
+    candidates.select { |p| scope.where(id: p.id).exists? && !has_conflicting_identifiers?(mention, rev, p) }
   end
 
-  # Tier 3 (strong, source-scoped): Same stable platform posting ID on same vetted platform
-  def find_tier3_candidates(mention, _rev)
-    return [] unless mention.source_domain.present? && mention.job_id.present?
+  # Tier 3 (strong, source-scoped): Same stable platform posting ID on same vetted platform + same employer
+  def find_tier3_candidates(mention, rev)
+    return [] unless mention.source_domain.present? && mention.job_id.present? && rev.company.present?
 
-    SourceMention.where.not(id: mention.id)
-                 .where.not(canonical_posting_id: nil)
-                 .where(source_domain: mention.source_domain, job_id: mention.job_id)
-                 .map(&:canonical_posting)
-                 .compact
-                 .uniq
+    scope = candidate_posting_scope(mention)
+    candidates = SourceMention.where.not(id: mention.id)
+                              .where.not(canonical_posting_id: nil)
+                              .where(source_domain: mention.source_domain, job_id: mention.job_id)
+                              .map(&:canonical_posting)
+                              .compact
+                              .uniq
+
+    candidates.select { |p| scope.where(id: p.id).exists? && !has_conflicting_identifiers?(mention, rev, p) }
+  end
+
+  def candidate_posting_scope(mention)
+    if mention.source_record&.approved_release_id.present?
+      CanonicalPosting.where(approved_release_id: mention.source_record.approved_release_id)
+    else
+      CanonicalPosting.where(approved_release_id: nil)
+    end
+  end
+
+  def has_conflicting_identifiers?(mention, rev, candidate_posting)
+    norm_company = rev.company.to_s.strip.downcase
+
+    # 1. Employer identity mismatch
+    return true if candidate_posting.company.to_s.strip.downcase != norm_company
+
+    # 2. Conflicting requisition IDs
+    cand_job_ids = candidate_posting.source_mentions.pluck(:job_id).compact.map(&:strip).reject(&:empty?).uniq
+    if mention.job_id.present? && cand_job_ids.any?
+      return true unless cand_job_ids.include?(mention.job_id.strip)
+    end
+
+    # 3. Conflicting employer job URLs (if on the same host with different specific paths)
+    clean_url = Sanitizer.clean_url(rev.job_url)
+    if clean_url.present? && specific_job_url?(clean_url)
+      host_a = URI.parse(clean_url).host.to_s.downcase rescue nil
+      cand_urls = candidate_posting.source_revisions.pluck(:job_url).compact.map { |u| Sanitizer.clean_url(u) }.reject(&:blank?).uniq
+      cand_urls.each do |cand_url|
+        next unless specific_job_url?(cand_url)
+        host_b = URI.parse(cand_url).host.to_s.downcase rescue nil
+        if host_a.present? && host_b.present? && host_a == host_b && clean_url != cand_url
+          return true
+        end
+      end
+    end
+
+    false
+  end
+
+  def specific_job_url?(url)
+    return false unless url.present?
+    uri = URI.parse(url)
+    path = uri.path.to_s.sub(/\/$/, "")
+    return false if path.blank?
+    !%w[/ /jobs /careers /search /openings].include?(path.downcase)
+  rescue URI::InvalidURIError
+    false
   end
 
   # Tier 4 (uncertain): Similar company & title without strong ID -> Record Potential Duplicate

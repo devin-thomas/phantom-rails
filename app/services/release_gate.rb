@@ -47,6 +47,11 @@ class ReleaseGate
       return Result.new(approved: false, candidate_digest: computed_digest, manifest: manifest, errors: errors)
     end
 
+    if parsed_batch.invalid_items.any?
+      inv_messages = parsed_batch.invalid_items.flat_map { |inv| inv[:errors].map { |e| "#{inv[:item_identifier]}: #{e[:message]}" } }
+      errors << "Candidate batch contains #{parsed_batch.invalid_items.size} invalid items; release candidate must be 100% valid: #{inv_messages.join('; ')}"
+    end
+
     scan_result = PrivacyScanner.scan_batch(parsed_batch.valid_items)
     unless scan_result.passed
       scan_errors = scan_result.violations.map { |v| "#{v[:type]} at #{v[:field]} (#{v[:snippet]})" }

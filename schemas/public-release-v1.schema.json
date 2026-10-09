@@ -62,7 +62,8 @@
     },
     "approval_signature": {
       "type": "string",
-      "pattern": "^[a-f0-9]{64}$"
+      "pattern": "^[a-f0-9]{64}$",
+      "description": "Operator approval confirmation token (in local workflow, verified candidate SHA-256 digest match rather than an asymmetric digital signature)"
     }
   }
 }

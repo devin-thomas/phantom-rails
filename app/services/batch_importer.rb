@@ -101,6 +101,9 @@ class BatchImporter
             }
           end
           next
+        else
+          # Identical duplicate observations in same batch: count duplicates as unchanged
+          unchanged += (items_for_key.size - 1)
         end
       end
       # Keep single item
