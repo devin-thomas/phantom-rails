@@ -1,0 +1,36 @@
+{
+  "batch_schema_version": "1.0",
+  "batch_id": "adversarial-unicode-batch-003",
+  "origin_class": "adversarial_synthetic",
+  "items": [
+    {
+      "source_record_key": "rec-unicode-001",
+      "mention_key": "item-1",
+      "source_system": "international_feed",
+      "observed_at": "2026-09-26T09:30:00Z",
+      "source_kind": "official_employer",
+      "title": "Ingénieur Logiciel Sénior — Recherche & Développement «API»",
+      "company": "Société Générale d'Ingénierie & Informatique",
+      "location": "Montréal, QC",
+      "remote_type": "hybrid",
+      "employment_type": "full_time",
+      "salary": { "min": 115000, "max": 145000, "currency": "CAD", "period": "year" },
+      "summary_excerpt": "Développement de micro-services avec Rails, PostgreSQL & Redis — accents, em-dash — & curly quotes “test”.",
+      "job_url": "https://carrieres.example.com/offres/ingenieur-logiciel"
+    },
+    {
+      "source_record_key": "rec-html-payload-002",
+      "mention_key": "item-2",
+      "source_system": "dirty_html_scraper",
+      "observed_at": "2026-09-26T10:00:00Z",
+      "source_kind": "third_party_board",
+      "title": "Fullstack Engineer <script>alert('xss')</script>",
+      "company": "Tech Corp & Co. <img src=x onerror=alert(1)>",
+      "location": "San Francisco, CA",
+      "remote_type": "remote",
+      "employment_type": "contract",
+      "summary_excerpt": "We use <b>PostgreSQL</b> & <i>Ruby</i>. Avoid raw unescaped payloads in public search output.",
+      "job_url": "https://board.example.com/job/442"
+    }
+  ]
+}

@@ -1,0 +1,136 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://phantom-rails.local/schemas/batch-v1.schema.json",
+  "title": "PhantomRailsBatchV1",
+  "type": "object",
+  "required": ["batch_schema_version", "batch_id", "origin_class", "items"],
+  "additionalProperties": false,
+  "properties": {
+    "batch_schema_version": {
+      "type": "string",
+      "const": "1.0"
+    },
+    "batch_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "origin_class": {
+      "type": "string",
+      "enum": ["sanitized_historical", "adversarial_synthetic"]
+    },
+    "items": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/item"
+      }
+    }
+  },
+  "$defs": {
+    "item": {
+      "type": "object",
+      "required": [
+        "source_record_key",
+        "mention_key",
+        "source_system",
+        "observed_at",
+        "source_kind",
+        "title",
+        "company",
+        "location"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "source_record_key": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "mention_key": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "source_system": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "observed_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "posted_at": {
+          "type": ["string", "null"],
+          "format": "date-time"
+        },
+        "source_kind": {
+          "type": "string",
+          "enum": ["official_employer", "third_party_board", "email_digest", "other_reviewed"]
+        },
+        "source_domain": {
+          "type": ["string", "null"],
+          "maxLength": 255
+        },
+        "job_id": {
+          "type": ["string", "null"],
+          "maxLength": 128
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "company": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "location": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "remote_type": {
+          "type": ["string", "null"],
+          "enum": ["onsite", "hybrid", "remote", "unknown", null]
+        },
+        "employment_type": {
+          "type": ["string", "null"],
+          "enum": ["full_time", "part_time", "contract", "internship", "temporary", "unknown", null]
+        },
+        "salary": {
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "required": ["min", "max", "currency", "period"],
+          "properties": {
+            "min": {
+              "type": ["number", "null"]
+            },
+            "max": {
+              "type": ["number", "null"]
+            },
+            "currency": {
+              "type": "string",
+              "minLength": 3,
+              "maxLength": 3
+            },
+            "period": {
+              "type": "string",
+              "enum": ["year", "month", "week", "hour"]
+            }
+          }
+        },
+        "summary_excerpt": {
+          "type": ["string", "null"],
+          "maxLength": 220
+        },
+        "job_url": {
+          "type": ["string", "null"],
+          "maxLength": 512,
+          "pattern": "^https?://.+"
+        }
+      }
+    }
+  }
+}

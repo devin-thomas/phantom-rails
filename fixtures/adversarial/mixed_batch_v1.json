@@ -1,0 +1,68 @@
+{
+  "batch_schema_version": "1.0",
+  "batch_id": "adversarial-suite-mixed-002",
+  "origin_class": "adversarial_synthetic",
+  "items": [
+    {
+      "source_record_key": "rec-valid-001",
+      "mention_key": "item-1",
+      "source_system": "clean_source",
+      "observed_at": "2026-09-25T12:00:00Z",
+      "source_kind": "official_employer",
+      "title": "Software Reliability Engineer",
+      "company": "Initech Corp",
+      "location": "Chicago, IL",
+      "remote_type": "onsite",
+      "employment_type": "full_time",
+      "salary": { "min": 110000, "max": 130000, "currency": "USD", "period": "year" },
+      "summary_excerpt": "Maintain mission critical PostgreSQL databases and Rails background services.",
+      "job_url": "https://initech.example.com/jobs/sre"
+    },
+    {
+      "source_record_key": "rec-invalid-missing-company",
+      "mention_key": "item-2",
+      "source_system": "broken_source",
+      "observed_at": "2026-09-25T12:00:00Z",
+      "source_kind": "third_party_board",
+      "title": "Anonymous Role With Missing Company Field",
+      "location": "Chicago, IL"
+    },
+    {
+      "source_record_key": "rec-invalid-timezone",
+      "mention_key": "item-3",
+      "source_system": "broken_source",
+      "observed_at": "2026-09-25 12:00:00",
+      "source_kind": "third_party_board",
+      "title": "Role with Non-ISO Timestamps",
+      "company": "Broken Time Corp",
+      "location": "New York, NY"
+    },
+    {
+      "source_record_key": "rec-invalid-unknown-keys",
+      "mention_key": "item-4",
+      "source_system": "broken_source",
+      "observed_at": "2026-09-25T12:00:00Z",
+      "source_kind": "third_party_board",
+      "title": "Role with Injected Unknown Keys",
+      "company": "Injected Corp",
+      "location": "Seattle, WA",
+      "applicant_ssn": "000-00-0000",
+      "internal_session_token": "secret-12345"
+    },
+    {
+      "source_record_key": "rec-valid-002",
+      "mention_key": "item-5",
+      "source_system": "clean_source",
+      "observed_at": "2026-09-25T14:00:00Z",
+      "source_kind": "official_employer",
+      "title": "Data Platform Architect",
+      "company": "Initech Corp",
+      "location": "Chicago, IL",
+      "remote_type": "hybrid",
+      "employment_type": "full_time",
+      "salary": { "min": 150000, "max": 180000, "currency": "USD", "period": "year" },
+      "summary_excerpt": "Design event-driven data ingestion schemas.",
+      "job_url": "https://initech.example.com/jobs/data-architect"
+    }
+  ]
+}

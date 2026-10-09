@@ -1,0 +1,17 @@
+{
+  "batch_schema_version": "2.0",
+  "batch_id": "unsupported-version-batch",
+  "origin_class": "adversarial_synthetic",
+  "items": [
+    {
+      "source_record_key": "rec-001",
+      "mention_key": "item-1",
+      "source_system": "source",
+      "observed_at": "2026-09-25T12:00:00Z",
+      "source_kind": "official_employer",
+      "title": "Valid Role in Bad Batch",
+      "company": "Some Company",
+      "location": "Chicago, IL"
+    }
+  ]
+}

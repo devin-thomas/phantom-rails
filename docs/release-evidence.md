@@ -13,7 +13,7 @@
 | Ticket | Name | Status | Verified Evidence |
 |---|---|---|---|
 | **PHR-001** | Rails/PostgreSQL foundation | **COMPLETE** | Docker Compose boots `db` (healthy) & `web` (running); `bin/rails db:prepare` succeeds; `bin/rails test` passes 2/2 tests (13 assertions); `/api/v1/health` returns 200 OK with no leaked secrets. |
-| **PHR-002** | Versioned source contract & hard fixtures | Not started | Pending |
+| **PHR-002** | Versioned source contract & hard fixtures | **COMPLETE** | JSON Schema `batch-v1.schema.json` created; `SourceBatchParser` passes 6 tests (41 assertions); multi-company adversarial fixtures created (valid, mixed, unsupported version, unicode/escaping, tracking/canaries, JSONL). |
 | **PHR-003** | Privacy release candidate workflow | Not started | Pending |
 | **PHR-004** | Relational provenance model | Not started | Pending |
 | **PHR-005** | Trusted partial importer | Not started | Pending |
@@ -64,3 +64,20 @@
   - `config/master.key` and `.env` excluded by `.gitignore`
   - `.env.example` provides non-sensitive defaults only
   - Zero private credentials, environment dumps, or database URLs exposed in `/api/v1/health`
+
+### PHR-002 — Versioned Source Contract & Hard Fixtures
+- **Schema:**
+  - `schemas/batch-v1.schema.json` with strict additionalProperties: false, length caps, and RFC3339 formats.
+- **Fixtures:**
+  - `fixtures/adversarial/valid_batch_v1.json` (5 valid items, multiple companies/tiers/timestamps)
+  - `fixtures/adversarial/mixed_batch_v1.json` (2 valid, 3 invalid with diagnostics)
+  - `fixtures/adversarial/invalid_envelope_v1.json` (unsupported version 2.0)
+  - `fixtures/adversarial/unicode_and_escaping_v1.json` (accented strings, HTML injection payloads)
+  - `fixtures/adversarial/tracking_and_canaries_v1.json` (UTM tracking params, PII tokens)
+  - `fixtures/adversarial/batch_v1.jsonl` (JSONL stream format)
+- **Test Output:**
+  ```text
+  bin/rails test test/services/source_batch_parser_test.rb
+  6 runs, 41 assertions, 0 failures, 0 errors, 0 skips
+  ```
+

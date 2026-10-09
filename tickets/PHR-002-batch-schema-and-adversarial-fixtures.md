@@ -1,6 +1,6 @@
 # PHR-002 — Versioned source contract and hard fixtures
 
-**Status:** Not started  
+**Status:** Complete  
 **Lane:** Core engineering / qualification  
 **Dependencies:** PHR-001
 
@@ -16,10 +16,10 @@ Define a strict, independently parsable sanitized source format and representati
 
 ## Acceptance Criteria
 
-- [ ] Fixture suite includes multiple companies, sources, locations and revisions and is explicitly labeled synthetic where appropriate.
-- [ ] Malformed unsupported versions fail as **batch errors**; malformed individual objects are identifiable as per-item errors after parse.
-- [ ] Schema rejects unknown input keys, invalid time zones, enum values and malformed payloads with stable error codes.
-- [ ] Tests demonstrate an external observed timestamp differs from the import timestamp.
+- [x] Fixture suite includes multiple companies, sources, locations and revisions and is explicitly labeled synthetic where appropriate.
+- [x] Malformed unsupported versions fail as **batch errors**; malformed individual objects are identifiable as per-item errors after parse.
+- [x] Schema rejects unknown input keys, invalid time zones, enum values and malformed payloads with stable error codes.
+- [x] Tests demonstrate an external observed timestamp differs from the import timestamp.
 
 ## Test / Evidence
 

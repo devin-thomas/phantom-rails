@@ -1,0 +1,22 @@
+{
+  "batch_schema_version": "1.0",
+  "batch_id": "adversarial-tracking-canaries-004",
+  "origin_class": "adversarial_synthetic",
+  "items": [
+    {
+      "source_record_key": "rec-tracking-001",
+      "mention_key": "item-1",
+      "source_system": "marketing_redirect_feed",
+      "observed_at": "2026-09-27T11:00:00Z",
+      "source_kind": "third_party_board",
+      "title": "Cloud Platform Engineer",
+      "company": "Canary Analytics",
+      "location": "Boston, MA",
+      "remote_type": "remote",
+      "employment_type": "full_time",
+      "salary": { "min": 140000, "max": 170000, "currency": "USD", "period": "year" },
+      "summary_excerpt": "Contact canary_private_recruiter@secret-corp.internal for referral details.",
+      "job_url": "https://jobs.example.com/posting/1234?utm_source=adwords&utm_medium=cpc&utm_campaign=winter2026&gclid=secret_click_token_9999&fbclid=tracking_fb_token#frag-tracking"
+    }
+  ]
+}
