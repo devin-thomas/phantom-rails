@@ -1,6 +1,6 @@
 # PHR-008 — Newest-first field selections with authority exceptions
 
-**Status:** Not started  
+**Status:** Complete  
 **Lane:** Core engineering / qualification  
 **Dependencies:** PHR-007
 
@@ -16,10 +16,10 @@ Project canonical fields deterministically from retained observations while expl
 
 ## Acceptance Criteria
 
-- [ ] Latest credible non-official evidence wins when no documented quality/authority exception exists.
-- [ ] Verified official employer range can override newer third-party range with reason and both values preserved.
-- [ ] Unverified spoofed official-looking URL never receives privileged weight.
-- [ ] Ties yield identical selection after shuffled insertion order/replayed fixtures.
+- [x] Latest credible non-official evidence wins when no documented quality/authority exception exists.
+- [x] Verified official employer range can override newer third-party range with reason and both values preserved.
+- [x] Unverified spoofed official-looking URL never receives privileged weight.
+- [x] Ties yield identical selection after shuffled insertion order/replayed fixtures.
 
 ## Test / Evidence
 

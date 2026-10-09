@@ -19,7 +19,7 @@
 | **PHR-005** | Trusted partial importer | **COMPLETE** | `BatchImporter` and `phantom:import` Rake task created; atomic item-level subtransactions; invalid rows isolated with diagnostics; unsupported versions abort atomically with 0 rows; verified across 4 tests (35 assertions) and CLI runs. |
 | **PHR-006** | Revision replay & import history | **COMPLETE** | Idempotent replay verified with zero duplicate records, zero corpus revision changes, and auditable `ImportRun`; chronological corrections retain previous revisions; `phantom:history` audit CLI verified across 3 tests (20 assertions). |
 | **PHR-007** | Conservative identity resolver | **COMPLETE** | Tier 1 (verified employer req), Tier 2 (canonical job URL), and Tier 3 (platform ID) merges verified; distinct reqs remain separate; Tier 4 weak similarity flagged as `PotentialDuplicate` without merging; verified across 4 tests (14 assertions). |
-| **PHR-008** | Field precedence & conflicts | Not started | Pending |
+| **PHR-008** | Field precedence & conflicts | **COMPLETE** | `FieldReconciler` implemented; verified official employer override (`verified_official_override`) overrides newer conflicting third-party board range; recency default (`newest_credible`); deterministic tie-breaking verified across 3 tests (9 assertions). |
 | **PHR-009** | Approved release projection & revision | Not started | Pending |
 | **PHR-010** | Read API & explicit serialization | Not started | Pending |
 | **PHR-011** | Compound filters & weighted relevance | Not started | Pending |
@@ -147,6 +147,20 @@
   bin/rails test test/services/identity_resolver_test.rb
   4 runs, 14 assertions, 0 failures, 0 errors, 0 skips
   ```
+
+### PHR-008 — Newest-First Field Selections with Authority Exceptions
+- **Service:**
+  - `app/services/field_reconciler.rb`
+- **Verified Behaviors:**
+  - Verified Official Override: Official employer posting on Sept 20 ($175k-$215k) overrides newer Sept 23 third-party board observation ($160k-$195k) with reason `verified_official_override`, while retaining both conflicting observations for audit.
+  - Recency Baseline: Equal-authority third-party sources resolve to latest observation with reason `newest_credible`.
+  - Deterministic Tie-Breaking: Simultaneous timestamps broken by authority rank, then revision digest lexicographical sorting.
+- **Test Output:**
+  ```text
+  bin/rails test test/services/field_reconciler_test.rb
+  3 runs, 9 assertions, 0 failures, 0 errors, 0 skips
+  ```
+
 
 
 

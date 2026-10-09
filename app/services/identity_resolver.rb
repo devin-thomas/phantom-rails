@@ -50,6 +50,7 @@ class IdentityResolver
 
     if matched_posting
       mention.update!(canonical_posting: matched_posting)
+      FieldReconciler.reconcile!(matched_posting)
       check_and_record_potential_duplicates(matched_posting)
       return ResolveResult.new(
         canonical_posting: matched_posting,
@@ -78,6 +79,7 @@ class IdentityResolver
     )
 
     mention.update!(canonical_posting: new_posting)
+    FieldReconciler.reconcile!(new_posting)
 
     # Step 3: Check for Tier 4 uncertain similarity (Potential Duplicate)
     check_and_record_potential_duplicates(new_posting)
