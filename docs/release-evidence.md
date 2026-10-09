@@ -15,7 +15,7 @@
 | **PHR-001** | Rails/PostgreSQL foundation | **COMPLETE** | Docker Compose boots `db` (healthy) & `web` (running); `bin/rails db:prepare` succeeds; `bin/rails test` passes 2/2 tests (13 assertions); `/api/v1/health` returns 200 OK with no leaked secrets. |
 | **PHR-002** | Versioned source contract & hard fixtures | **COMPLETE** | JSON Schema `batch-v1.schema.json` created; `SourceBatchParser` passes 6 tests (41 assertions); multi-company adversarial fixtures created (valid, mixed, unsupported version, unicode/escaping, tracking/canaries, JSONL). |
 | **PHR-003** | Privacy release candidate workflow | **COMPLETE** | `Sanitizer`, `PrivacyScanner`, and `ReleaseGate` implemented; approved release manifest v1.0 schema created; verified digest match (`ead0619...`), rejection of tampered bytes, rejection of PII/canaries, and URL tracking parameter stripping across 5 tests (25 assertions). |
-| **PHR-004** | Relational provenance model | Not started | Pending |
+| **PHR-004** | Relational provenance model | **COMPLETE** | PostgreSQL migrations executed for all 9 domain tables (`approved_releases`, `canonical_postings`, `source_records`, `source_mentions`, `source_revisions`, `field_selections`, `potential_duplicates`, `import_runs`, `import_errors`); DB constraints tested and verified across 5 tests (19 assertions); no SQLite divergence. |
 | **PHR-005** | Trusted partial importer | Not started | Pending |
 | **PHR-006** | Revision replay & import history | Not started | Pending |
 | **PHR-007** | Conservative identity resolver | Not started | Pending |
@@ -94,5 +94,19 @@
   bin/rails test test/services/release_gate_test.rb
   5 runs, 25 assertions, 0 failures, 0 errors, 0 skips
   ```
+
+### PHR-004 — Relational Provenance Model
+- **Migrations:**
+  - `db/migrate/20261009120000_create_provenance_domain_model.rb` applied to PostgreSQL.
+  - Tables created: `approved_releases`, `canonical_postings`, `source_records`, `source_mentions`, `source_revisions`, `field_selections`, `potential_duplicates`, `import_runs`, `import_errors`.
+  - Enforced DB constraints: foreign keys, cascading deletes, unique indexes (`[source_system, source_record_key]`, `[source_record_id, mention_key]`, `[source_mention_id, revision_digest]`, `[canonical_posting_id, field_name]`, `[posting_a_id, posting_b_id]`).
+- **PostgreSQL Full-Text Search:**
+  - GIN indexed `tsvector` column on `canonical_postings.search_vector` using `english` dictionary.
+- **Test Output:**
+  ```text
+  bin/rails test test/models/provenance_domain_model_test.rb
+  5 runs, 19 assertions, 0 failures, 0 errors, 0 skips
+  ```
+
 
 

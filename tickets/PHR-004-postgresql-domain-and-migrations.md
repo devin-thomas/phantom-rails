@@ -1,6 +1,6 @@
 # PHR-004 — Relational provenance model
 
-**Status:** Not started  
+**Status:** Complete  
 **Lane:** Core engineering / qualification  
 **Dependencies:** PHR-001, PHR-002
 
@@ -16,10 +16,10 @@ Implement source, revision, canonical posting, conflict, approval and import his
 
 ## Acceptance Criteria
 
-- [ ] Unique constraints and foreign keys prevent duplicate source revision identity and orphaned evidence under concurrent imports.
-- [ ] Migrations run from an empty PG database and can be replayed from clean checkout using the documented DB preparation path.
-- [ ] Public IDs do not reveal private source IDs or candidate/account details.
-- [ ] No SQLite-mode test path exists.
+- [x] Unique constraints and foreign keys prevent duplicate source revision identity and orphaned evidence under concurrent imports.
+- [x] Migrations run from an empty PG database and can be replayed from clean checkout using the documented DB preparation path.
+- [x] Public IDs do not reveal private source IDs or candidate/account details.
+- [x] No SQLite-mode test path exists.
 
 ## Test / Evidence
 
