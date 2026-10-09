@@ -1,6 +1,6 @@
 # PHR-006 — Idempotent correction and replay
 
-**Status:** Not started  
+**Status:** Complete  
 **Lane:** Core engineering / qualification  
 **Dependencies:** PHR-005
 
@@ -16,10 +16,10 @@ Ensure stable repeated imports, preserve immutable revisions and keep correction
 
 ## Acceptance Criteria
 
-- [ ] Identical batch imported twice creates no additional mentions/revisions/postings and no corpus-revision increase.
-- [ ] Chronologically separated correction changes selected state while old observation remains retrievable and attributable.
-- [ ] Conflicting revisions for same key in a single unordered batch are isolated with `ambiguous_revision_order`.
-- [ ] DB fault test shows no successful completion is claimed and active transactional mutations are rolled back.
+- [x] Identical batch imported twice creates no additional mentions/revisions/postings and no corpus-revision increase.
+- [x] Chronologically separated correction changes selected state while old observation remains retrievable and attributable.
+- [x] Conflicting revisions for same key in a single unordered batch are isolated with `ambiguous_revision_order`.
+- [x] DB fault test shows no successful completion is claimed and active transactional mutations are rolled back.
 
 ## Test / Evidence
 

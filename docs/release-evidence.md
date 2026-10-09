@@ -17,7 +17,7 @@
 | **PHR-003** | Privacy release candidate workflow | **COMPLETE** | `Sanitizer`, `PrivacyScanner`, and `ReleaseGate` implemented; approved release manifest v1.0 schema created; verified digest match (`ead0619...`), rejection of tampered bytes, rejection of PII/canaries, and URL tracking parameter stripping across 5 tests (25 assertions). |
 | **PHR-004** | Relational provenance model | **COMPLETE** | PostgreSQL migrations executed for all 9 domain tables (`approved_releases`, `canonical_postings`, `source_records`, `source_mentions`, `source_revisions`, `field_selections`, `potential_duplicates`, `import_runs`, `import_errors`); DB constraints tested and verified across 5 tests (19 assertions); no SQLite divergence. |
 | **PHR-005** | Trusted partial importer | **COMPLETE** | `BatchImporter` and `phantom:import` Rake task created; atomic item-level subtransactions; invalid rows isolated with diagnostics; unsupported versions abort atomically with 0 rows; verified across 4 tests (35 assertions) and CLI runs. |
-| **PHR-006** | Revision replay & import history | Not started | Pending |
+| **PHR-006** | Revision replay & import history | **COMPLETE** | Idempotent replay verified with zero duplicate records, zero corpus revision changes, and auditable `ImportRun`; chronological corrections retain previous revisions; `phantom:history` audit CLI verified across 3 tests (20 assertions). |
 | **PHR-007** | Conservative identity resolver | Not started | Pending |
 | **PHR-008** | Field precedence & conflicts | Not started | Pending |
 | **PHR-009** | Approved release projection & revision | Not started | Pending |
@@ -122,6 +122,18 @@
   bin/rails test test/services/batch_importer_test.rb
   4 runs, 35 assertions, 0 failures, 0 errors, 0 skips
   ```
+
+### PHR-006 — Idempotent Correction and Replay
+- **Verified Behaviors:**
+  - Idempotent Replay: Importing identical payload records `unchanged: N, inserted: 0`, leaving existing records and counts unchanged.
+  - Historical Retention: Subsequent corrected payload adds a new `SourceRevision` with updated attributes while retaining older revisions with their exact timestamps and values.
+  - History Task: `bin/rails phantom:history` displays formatted run audit log with timestamps, statuses, and counts.
+- **Test Output:**
+  ```text
+  bin/rails test test/services/revision_replay_test.rb
+  3 runs, 20 assertions, 0 failures, 0 errors, 0 skips
+  ```
+
 
 
 

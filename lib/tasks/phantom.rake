@@ -27,4 +27,28 @@ namespace :phantom do
 
     exit(report.status == "failed" ? 1 : 0)
   end
+
+  desc "Display audit history of all import runs"
+  task history: :environment do
+    runs = ImportRun.history_summary
+    if runs.empty?
+      puts "No import runs recorded yet."
+      exit 0
+    end
+
+    puts sprintf("%-4s %-28s %-10s %-8s %-8s %-8s %-8s %-8s", "ID", "BATCH_ID", "STATUS", "INPUT", "INS", "UPD", "UNCH", "ERRS")
+    puts "-" * 88
+    runs.each do |r|
+      puts sprintf("%-4d %-28s %-10s %-8d %-8d %-8d %-8d %-8d",
+        r[:id],
+        r[:batch_id][0, 27],
+        r[:status].upcase,
+        r[:total_input],
+        r[:inserted],
+        r[:updated],
+        r[:unchanged],
+        r[:invalid]
+      )
+    end
+  end
 end
