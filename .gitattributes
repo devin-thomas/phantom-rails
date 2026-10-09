@@ -1,2 +1,8 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+
+# Enforce LF for shell and executable scripts
+bin/* text eol=lf
+*.sh text eol=lf
+Dockerfile text eol=lf
+compose.yaml text eol=lf

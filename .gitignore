@@ -1,0 +1,28 @@
+# Ignore bundler config
+/.bundle
+
+# Ignore local environment and secrets
+.env
+.env*.local
+config/master.key
+config/credentials/*.key
+
+# Ignore private staging data and raw exports (SPEC §2, §3)
+private/
+quarantine/
+
+# Ignore logs and temporary files
+/log/*
+!/log/.keep
+/tmp/*
+!/tmp/.keep
+/storage/*
+!/storage/.keep
+
+# Ignore test coverage and artifacts
+/coverage/
+.byebug_history
+
+# OS files
+.DS_Store
+Thumbs.db

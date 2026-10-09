@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+set -e
+
+# If running the rails server then prepare the database
+if [[ "$*" == *"rails server"* ]]; then
+  bin/rails db:prepare || true
+fi
+
+exec "$@"
