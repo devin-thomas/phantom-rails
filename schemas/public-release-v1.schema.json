@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://phantom-rails.local/schemas/public-release-v1.schema.json",
+  "title": "PhantomRailsPublicReleaseManifestV1",
+  "type": "object",
+  "required": [
+    "manifest_version",
+    "corpus_version",
+    "candidate_digest",
+    "total_items",
+    "origin_class_counts",
+    "automated_checks_passed",
+    "approved_by",
+    "approved_at",
+    "approval_signature"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "manifest_version": {
+      "type": "string",
+      "const": "1.0"
+    },
+    "corpus_version": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "candidate_digest": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "total_items": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "origin_class_counts": {
+      "type": "object",
+      "required": ["adversarial_synthetic"],
+      "additionalProperties": false,
+      "properties": {
+        "sanitized_historical": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "adversarial_synthetic": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "automated_checks_passed": {
+      "type": "boolean"
+    },
+    "approved_by": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "approved_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "approval_signature": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    }
+  }
+}

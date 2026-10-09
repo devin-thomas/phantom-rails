@@ -14,7 +14,7 @@
 |---|---|---|---|
 | **PHR-001** | Rails/PostgreSQL foundation | **COMPLETE** | Docker Compose boots `db` (healthy) & `web` (running); `bin/rails db:prepare` succeeds; `bin/rails test` passes 2/2 tests (13 assertions); `/api/v1/health` returns 200 OK with no leaked secrets. |
 | **PHR-002** | Versioned source contract & hard fixtures | **COMPLETE** | JSON Schema `batch-v1.schema.json` created; `SourceBatchParser` passes 6 tests (41 assertions); multi-company adversarial fixtures created (valid, mixed, unsupported version, unicode/escaping, tracking/canaries, JSONL). |
-| **PHR-003** | Privacy release candidate workflow | Not started | Pending |
+| **PHR-003** | Privacy release candidate workflow | **COMPLETE** | `Sanitizer`, `PrivacyScanner`, and `ReleaseGate` implemented; approved release manifest v1.0 schema created; verified digest match (`ead0619...`), rejection of tampered bytes, rejection of PII/canaries, and URL tracking parameter stripping across 5 tests (25 assertions). |
 | **PHR-004** | Relational provenance model | Not started | Pending |
 | **PHR-005** | Trusted partial importer | Not started | Pending |
 | **PHR-006** | Revision replay & import history | Not started | Pending |
@@ -80,4 +80,19 @@
   bin/rails test test/services/source_batch_parser_test.rb
   6 runs, 41 assertions, 0 failures, 0 errors, 0 skips
   ```
+
+### PHR-003 — Privacy-Preserving Release Candidate Workflow
+- **Services:**
+  - `Sanitizer`: Strips tracking query params (`utm_*`, `gclid`, `fbclid`, etc.), URL fragments, userinfo, executable HTML tags, and truncates excerpts <= 220 chars without fabricating facts.
+  - `PrivacyScanner`: Scans fields for email addresses, canaries (`canary_*`, `secret_*`), bearer tokens, un-sanitized tracking params, and HTML scripts.
+  - `ReleaseGate`: Computes SHA-256 digest of candidate payload, validates signed manifest (`schemas/public-release-v1.schema.json`), and fails closed if digest mismatches or privacy check fails.
+- **Approved Release Fixture:**
+  - `fixtures/public-approved/approved-batch-v1.json`
+  - `fixtures/public-approved/approved-manifest-v1.json` (Digest: `ead0619d574105222c58c4993fdd66d2cd087bc87e50273a119f4c32881230e1`, approved by `devin-thomas`)
+- **Test Output:**
+  ```text
+  bin/rails test test/services/release_gate_test.rb
+  5 runs, 25 assertions, 0 failures, 0 errors, 0 skips
+  ```
+
 

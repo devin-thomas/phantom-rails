@@ -37,9 +37,16 @@ class SourceBatchParser
       )
     end
 
-    is_jsonl = format == :jsonl || (format == :auto && (trimmed.start_with?("{") && trimmed.include?("\n") && !trimmed.end_with?("]")))
+    parsed_json = nil
+    begin
+      parsed_json = JSON.parse(trimmed)
+    rescue JSON::ParserError
+      parsed_json = nil
+    end
 
-    if is_jsonl
+    if parsed_json.is_a?(Hash) && format != :jsonl
+      batch_raw = parsed_json
+    elsif format == :jsonl || parsed_json.nil?
       begin
         lines = trimmed.lines.map(&:strip).reject(&:empty?)
         parsed_lines = lines.map.with_index do |line, idx|
@@ -51,7 +58,7 @@ class SourceBatchParser
             origin_class: nil,
             valid_items: [],
             invalid_items: [],
-            batch_errors: [{ code: "malformed_jsonl", message: "Malformed JSON on line #{idx + 1}: #{e.message}" }]
+            batch_errors: [{ code: "malformed_json", message: "Invalid JSON / JSONL format: line #{idx + 1}: #{e.message}" }]
           )
         end
 
@@ -74,19 +81,6 @@ class SourceBatchParser
           valid_items: [],
           invalid_items: [],
           batch_errors: [{ code: "jsonl_parse_error", message: e.message }]
-        )
-      end
-    else
-      begin
-        batch_raw = JSON.parse(content)
-      rescue JSON::ParserError => e
-        return Result.new(
-          success: false,
-          batch_id: nil,
-          origin_class: nil,
-          valid_items: [],
-          invalid_items: [],
-          batch_errors: [{ code: "malformed_json", message: "Invalid JSON format: #{e.message}" }]
         )
       end
     end

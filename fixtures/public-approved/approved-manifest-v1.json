@@ -1,0 +1,13 @@
+{
+  "manifest_version": "1.0",
+  "corpus_version": "v1.0.0",
+  "candidate_digest": "ead0619d574105222c58c4993fdd66d2cd087bc87e50273a119f4c32881230e1",
+  "total_items": 5,
+  "origin_class_counts": {
+    "adversarial_synthetic": 5
+  },
+  "automated_checks_passed": true,
+  "approved_by": "devin-thomas",
+  "approved_at": "2026-10-09T16:22:55Z",
+  "approval_signature": "ead0619d574105222c58c4993fdd66d2cd087bc87e50273a119f4c32881230e1"
+}

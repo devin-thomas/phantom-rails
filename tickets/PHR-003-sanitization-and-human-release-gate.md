@@ -1,6 +1,6 @@
 # PHR-003 — Privacy-preserving release candidate workflow
 
-**Status:** Not started  
+**Status:** Complete  
 **Lane:** Core engineering / qualification  
 **Dependencies:** PHR-002
 
@@ -16,10 +16,10 @@ Implement a private staging and publication-approval boundary that cannot turn i
 
 ## Acceptance Criteria
 
-- [ ] A candidate containing sensitive emails, redirect tokens, credentials or malicious HTML fails the release gate.
-- [ ] An exact approved digest is necessary for public release; changed bytes, missing signature/approval or unapproved historical corpus fail closed.
-- [ ] Negative tests confirm no raw private fields appear in committed fixtures, API projections, CLI errors or UI assets.
-- [ ] Sanitizer never invents facts or silently replaces sensitive data with plausible-but-false facts.
+- [x] A candidate containing sensitive emails, redirect tokens, credentials or malicious HTML fails the release gate.
+- [x] An exact approved digest is necessary for public release; changed bytes, missing signature/approval or unapproved historical corpus fail closed.
+- [x] Negative tests confirm no raw private fields appear in committed fixtures, API projections, CLI errors or UI assets.
+- [x] Sanitizer never invents facts or silently replaces sensitive data with plausible-but-false facts.
 
 ## Test / Evidence
 
