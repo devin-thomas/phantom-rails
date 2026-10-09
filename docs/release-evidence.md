@@ -501,6 +501,13 @@ Following independent QA Round 6 audit (`Phantom_Rails_QA_Round6_Stop_Ship.md`),
    - Removed all `sm.update_columns` and `sr.update_columns` mutations from `UpgradeRevisionDigestsToV2`, ensuring per-revision digest upgrades never mutate shared parent records or alter iteration-order metadata.
 6. **QA6-006: Comprehensive Verification Gate Expansion:**
    - Expanded `bin/verify` active corpus privacy scanning to validate `PostingSerializer.render_one`, `ProvenanceSerializer.render`, and meta responses with opaque diagnostics.
+7. **Round 6 Final Qualification Totals & CI Evidence:**
+   - Audited commit SHA: [`4919f9a0c64952a201c13d803387ea30777d018d`](https://github.com/devin-thomas/phantom-rails/commit/4919f9a0c64952a201c13d803387ea30777d018d)
+   - GitHub Actions CI run: [#38004353401](https://github.com/devin-thomas/phantom-rails/actions/runs/38004353401) (status: SUCCESS in both scan and test jobs)
+   - Automated test suite: **120 runs, 770 assertions, 0 failures, 0 errors, 0 skips**.
+   - Brakeman security scan: **0 unsuppressed security warnings, 3 ignored SQL warnings**.
+   - Single-command qualification `bin/verify`: **ALL 7 GATES PASS (EXIT 0)**.
+
 
 
 
