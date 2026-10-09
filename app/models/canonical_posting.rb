@@ -38,9 +38,10 @@ class CanonicalPosting < ApplicationRecord
   end
 
   def update_search_vector
-    # Build text vector from title, company, location, and summary
     text_content = [title, company, location, summary_excerpt].compact.join(" ")
-    sanitized_sql = ActiveRecord::Base.sanitize_sql_array(["to_tsvector('english', ?)", text_content])
-    self.search_vector = Arel.sql(sanitized_sql)
+    res = ActiveRecord::Base.connection.select_value(
+      ActiveRecord::Base.sanitize_sql_array(["SELECT to_tsvector('english', ?)::text", text_content])
+    )
+    self.search_vector = res
   end
 end

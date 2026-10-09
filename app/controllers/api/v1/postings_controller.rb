@@ -2,32 +2,22 @@ module Api
   module V1
     class PostingsController < ApplicationController
       def index
-        limit = 20
-        if params[:limit].present?
-          begin
-            parsed_limit = Integer(params[:limit])
-            if parsed_limit < 1 || parsed_limit > 50
-              render_invalid_param("limit must be from 1 to 50") and return
-            end
-            limit = parsed_limit
-          rescue ArgumentError
-            render_invalid_param("limit must be from 1 to 50") and return
-          end
+        result = SearchPostings.call(search_params)
+
+        unless result.success?
+          render_invalid_param(result.error_message) and return
         end
 
-        scope = CanonicalPosting.active_approved.includes(source_mentions: :source_record)
-        postings = scope.order(created_at: :desc, id: :desc).limit(limit)
-
         render json: {
-          data: PostingSerializer.render_many(postings),
+          data: PostingSerializer.render_many(result.postings, scores: result.scores),
           page: {
-            limit: limit,
+            limit: result.limit,
             next_cursor: nil,
             corpus_revision: ApprovedReleaseManager.current_revision
           },
           meta: {
-            sort: "relevance",
-            query: params[:q].presence
+            sort: result.sort,
+            query: result.query
           }
         }
       end
@@ -58,6 +48,12 @@ module Api
         render json: {
           data: PostingSerializer.render_provenance(posting)
         }
+      end
+
+      private
+
+      def search_params
+        params.permit(:q, :company, :location, :remote_type, :employment_type, :min_salary_usd, :sort, :limit).to_h.symbolize_keys
       end
     end
   end

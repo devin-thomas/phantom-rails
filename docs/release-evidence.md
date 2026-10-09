@@ -190,5 +190,24 @@
 - **Test Output:**
   ```text
   bin/rails test test/controllers/api/v1/postings_controller_test.rb
-  9 runs, 66 assertions, 0 failures, 0 errors, 0 skips
+  11 runs, 78 assertions, 0 failures, 0 errors, 0 skips
+  ```
+
+### PHR-011 — PostgreSQL Keyword Search, Explainable Field Weights, and Compound Filters
+- **Service & Controller Integration:**
+  - `app/services/search_postings.rb`
+  - `app/controllers/api/v1/postings_controller.rb`
+  - `app/models/canonical_posting.rb` (dynamic tsvector synchronization)
+- **Verified Behaviors:**
+  - Full-Text Query Filtering: Parameterized `plainto_tsquery('english', q)` against GIN-indexed `search_vector`, requiring all meaningful query lexemes across combined fields.
+  - Explainable Field Weights: Title (+8), Company (+5), Location (+3), Excerpt (+1) per distinct query lexeme, with single-field deduplication.
+  - Compound AND Filters: Exact case-insensitive normalized `company` and `location`, validated `remote_type` (`onsite|hybrid|remote|unknown`), validated `employment_type`, and annual-USD compensation filter `min_salary_usd`.
+  - Null/Hourly Salary Safety: Unknown salaries and non-annualized hourly pay ($75/hr) cannot satisfy `min_salary_usd`.
+  - SQL Injection Defense: Parameterized inputs safely isolate quotes, SQL injection attempts (`' OR 1=1 --`), and semicolon chained queries.
+  - Complexity Caps: Rejects strings > 120 chars and queries with > 8 lexemes with safe 400 `invalid_parameter` errors.
+  - Deterministic Ordering: Tie-breakers enforced via stable `public_id ASC`.
+- **Test Output:**
+  ```text
+  bin/rails test test/services/search_postings_test.rb
+  7 runs, 62 assertions, 0 failures, 0 errors, 0 skips
   ```

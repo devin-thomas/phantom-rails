@@ -1,6 +1,6 @@
 # PHR-011 — PostgreSQL keyword search and filters
 
-**Status:** Not started  
+**Status:** Complete  
 **Lane:** Core engineering / qualification  
 **Dependencies:** PHR-010
 
@@ -11,15 +11,15 @@ Build B-plus search with explainable field weights and compound AND filtering us
 ## Scope
 
 - Query tokenizer, `plainto_tsquery` / GIN search vector, `q`, company/location/remote/employment/salary filters.
-- - Fixed weights title 8, company 5, location 3, excerpt 1 per meaningful lexeme, stable score/tie logic, explicit sorts including newest/company/title.
-- - Query complexity caps (120 chars/8 lexemes), null-safe salary handling, stable empty-result semantics.
+- Fixed weights title 8, company 5, location 3, excerpt 1 per meaningful lexeme, stable score/tie logic, explicit sorts including newest/company/title.
+- Query complexity caps (120 chars/8 lexemes), null-safe salary handling, stable empty-result semantics.
 
 ## Acceptance Criteria
 
-- [ ] Multiple lexemes can match across different fields and rank by stated weights.
-- [ ] Equivalent data inserted in different order produces identical scored/tied result IDs.
-- [ ] Unknown salaries and non-annualized hourly pay cannot satisfy an annual-USD minimum filter.
-- [ ] Unsupported filter and malicious SQL-looking input cause safe deterministic errors; no SQL injection.
+- [x] Multiple lexemes can match across different fields and rank by stated weights.
+- [x] Equivalent data inserted in different order produces identical scored/tied result IDs.
+- [x] Unknown salaries and non-annualized hourly pay cannot satisfy an annual-USD minimum filter.
+- [x] Unsupported filter and malicious SQL-looking input cause safe deterministic errors; no SQL injection.
 
 ## Test / Evidence
 

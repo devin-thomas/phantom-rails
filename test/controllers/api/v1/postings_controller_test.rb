@@ -195,4 +195,27 @@ class Api::V1::PostingsControllerTest < ActionDispatch::IntegrationTest
     report = PrivacyScanner.scan_string(response.body)
     assert report.clean?, "Public meta response must be clean: #{report.violations.inspect}"
   end
+
+  test "GET /api/v1/postings with q and compound filters returns filtered results" do
+    get "/api/v1/postings?q=Rails&company=Acme%20Corp&min_salary_usd=100000"
+    assert_response :success
+    json = JSON.parse(response.body)
+    assert_equal 1, json["data"].length
+    assert_equal "post_approved_001", json["data"].first["id"]
+    assert_equal "relevance", json["meta"]["sort"]
+    assert_equal "Rails", json["meta"]["query"]
+    assert json["data"].first["relevance_score"] > 0
+  end
+
+  test "GET /api/v1/postings with invalid filters returns 400 invalid_parameter" do
+    get "/api/v1/postings?remote_type=invalid_remote"
+    assert_response :bad_request
+    json = JSON.parse(response.body)
+    assert_equal "invalid_parameter", json.dig("error", "code")
+
+    get "/api/v1/postings?min_salary_usd=not_a_number"
+    assert_response :bad_request
+    json = JSON.parse(response.body)
+    assert_equal "invalid_parameter", json.dig("error", "code")
+  end
 end
