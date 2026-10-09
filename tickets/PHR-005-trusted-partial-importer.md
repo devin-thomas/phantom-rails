@@ -1,6 +1,6 @@
 # PHR-005 — CLI/Rake trusted partial importer
 
-**Status:** Not started  
+**Status:** Complete  
 **Lane:** Core engineering / qualification  
 **Dependencies:** PHR-003, PHR-004
 
@@ -16,10 +16,10 @@ Ingest a parseable mixed-quality approved batch with item-level atomicity and co
 
 ## Acceptance Criteria
 
-- [ ] A mixed sample containing 43 valid and 7 invalid records accepts precisely the independent valid rows and reports `partial` (illustrative fixture size).
-- [ ] Unreadable or unsupported whole batch writes no records and reports an explicit failure.
-- [ ] Public routes expose no import endpoint; POST/PUT/PATCH/DELETE cannot create data.
-- [ ] All item outcomes are accounted for, and raw rejected payloads never enter logs or public tables.
+- [x] A mixed sample containing valid and invalid records accepts precisely the independent valid rows and reports `partial` (illustrative fixture size).
+- [x] Unreadable or unsupported whole batch writes no records and reports an explicit failure.
+- [x] Public routes expose no import endpoint; POST/PUT/PATCH/DELETE cannot create data.
+- [x] All item outcomes are accounted for, and raw rejected payloads never enter logs or public tables.
 
 ## Test / Evidence
 

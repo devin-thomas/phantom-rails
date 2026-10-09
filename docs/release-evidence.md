@@ -16,7 +16,7 @@
 | **PHR-002** | Versioned source contract & hard fixtures | **COMPLETE** | JSON Schema `batch-v1.schema.json` created; `SourceBatchParser` passes 6 tests (41 assertions); multi-company adversarial fixtures created (valid, mixed, unsupported version, unicode/escaping, tracking/canaries, JSONL). |
 | **PHR-003** | Privacy release candidate workflow | **COMPLETE** | `Sanitizer`, `PrivacyScanner`, and `ReleaseGate` implemented; approved release manifest v1.0 schema created; verified digest match (`ead0619...`), rejection of tampered bytes, rejection of PII/canaries, and URL tracking parameter stripping across 5 tests (25 assertions). |
 | **PHR-004** | Relational provenance model | **COMPLETE** | PostgreSQL migrations executed for all 9 domain tables (`approved_releases`, `canonical_postings`, `source_records`, `source_mentions`, `source_revisions`, `field_selections`, `potential_duplicates`, `import_runs`, `import_errors`); DB constraints tested and verified across 5 tests (19 assertions); no SQLite divergence. |
-| **PHR-005** | Trusted partial importer | Not started | Pending |
+| **PHR-005** | Trusted partial importer | **COMPLETE** | `BatchImporter` and `phantom:import` Rake task created; atomic item-level subtransactions; invalid rows isolated with diagnostics; unsupported versions abort atomically with 0 rows; verified across 4 tests (35 assertions) and CLI runs. |
 | **PHR-006** | Revision replay & import history | Not started | Pending |
 | **PHR-007** | Conservative identity resolver | Not started | Pending |
 | **PHR-008** | Field precedence & conflicts | Not started | Pending |
@@ -107,6 +107,22 @@
   bin/rails test test/models/provenance_domain_model_test.rb
   5 runs, 19 assertions, 0 failures, 0 errors, 0 skips
   ```
+
+### PHR-005 — CLI/Rake Trusted Partial Importer
+- **Service & CLI:**
+  - `app/services/batch_importer.rb`
+  - `lib/tasks/phantom.rake` (`bin/rails phantom:import[file]`)
+- **Key Behaviors Verified:**
+  - Ingests parseable mixed-quality batch (`mixed_batch_v1.json`) with partial status: exactly 2 valid items accepted, 3 invalid items isolated with error codes.
+  - Quarantines in-batch key collisions (`ambiguous_revision_order`) when two conflicting revisions for the same mention appear in one batch.
+  - Rejects unsupported schema versions (`invalid_envelope_v1.json`) atomically with 0 rows inserted and status `failed`.
+  - Guarantees exact item accounting: `total_input == inserted + updated + unchanged + invalid`.
+- **Test Output:**
+  ```text
+  bin/rails test test/services/batch_importer_test.rb
+  4 runs, 35 assertions, 0 failures, 0 errors, 0 skips
+  ```
+
 
 
 
