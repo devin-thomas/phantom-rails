@@ -211,3 +211,22 @@
   bin/rails test test/services/search_postings_test.rb
   7 runs, 62 assertions, 0 failures, 0 errors, 0 skips
   ```
+
+### PHR-012 — Revision-Safe Keyset Cursor Pagination
+- **Services & Controller Integration:**
+  - `app/services/cursor_token.rb`
+  - `app/services/search_postings.rb`
+  - `app/controllers/api/v1/postings_controller.rb`
+- **Verified Behaviors:**
+  - Keyset Boundary Completeness: Multi-page traversal with lookahead yields every qualifying posting ID exactly once across page transitions without duplicates, skipped rows, or offset queries.
+  - Query Fingerprinting: Cursors encode normalized query parameters digest (`qd`). Reusing a cursor with modified search filters returns 400 `cursor_query_mismatch`.
+  - Cryptographic Verification: Tokens are HMAC-SHA256 signed. Bit-flip tampering or truncated tokens return 400 `invalid_cursor`.
+  - Temporal Expiry: Cursors exceeding 15-minute TTL return 410 `cursor_expired`.
+  - Revision Invalidation: Cursors tied to an older corpus revision return 409 `stale_cursor` when a new approved release is published.
+  - Zero Sensitive Data Leakage: Cursors contain only version, corpus revision, query digest, sort tuple, and expiry.
+  - Exact Terminal Semantics: Final page returns `next_cursor: null`.
+- **Test Output:**
+  ```text
+  bin/rails test test/services/cursor_token_test.rb test/controllers/api/v1/cursor_pagination_test.rb
+  10 runs, 34 assertions, 0 failures, 0 errors, 0 skips
+  ```

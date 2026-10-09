@@ -5,15 +5,26 @@ module Api
         result = SearchPostings.call(search_params)
 
         unless result.success?
-          render_invalid_param(result.error_message) and return
+          status = case result.error_code
+                   when "cursor_expired" then :gone
+                   when "stale_cursor" then :conflict
+                   else :bad_request
+                   end
+          render json: {
+            error: {
+              code: result.error_code,
+              message: result.error_message,
+              request_id: request.request_id
+            }
+          }, status: status and return
         end
 
         render json: {
           data: PostingSerializer.render_many(result.postings, scores: result.scores),
           page: {
             limit: result.limit,
-            next_cursor: nil,
-            corpus_revision: ApprovedReleaseManager.current_revision
+            next_cursor: result.next_cursor,
+            corpus_revision: result.corpus_revision
           },
           meta: {
             sort: result.sort,
@@ -53,7 +64,7 @@ module Api
       private
 
       def search_params
-        params.permit(:q, :company, :location, :remote_type, :employment_type, :min_salary_usd, :sort, :limit).to_h.symbolize_keys
+        params.permit(:q, :company, :location, :remote_type, :employment_type, :min_salary_usd, :sort, :limit, :cursor).to_h.symbolize_keys
       end
     end
   end

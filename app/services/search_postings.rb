@@ -10,6 +10,8 @@ class SearchPostings
     :sort,
     :query,
     :limit,
+    :next_cursor,
+    :corpus_revision,
     :error_code,
     :error_message,
     keyword_init: true
@@ -50,6 +52,46 @@ class SearchPostings
       end
     else
       sort = lexemes.any? ? "relevance" : "newest"
+    end
+
+    # Query digest for cursor validation
+    min_sal_val = nil
+    if @params[:min_salary_usd].present?
+      begin
+        min_sal_val = Integer(@params[:min_salary_usd])
+        if min_sal_val < 0
+          return fail_result("invalid_parameter", "min_salary_usd must be a non-negative integer")
+        end
+      rescue ArgumentError, TypeError
+        return fail_result("invalid_parameter", "min_salary_usd must be a non-negative integer")
+      end
+    end
+
+    normalized_query_params = {
+      "company" => @params[:company].to_s.strip.downcase.presence,
+      "employment_type" => @params[:employment_type].to_s.strip.presence,
+      "location" => @params[:location].to_s.strip.downcase.presence,
+      "min_salary_usd" => min_sal_val,
+      "q" => q_param.presence,
+      "remote_type" => @params[:remote_type].to_s.strip.presence,
+      "sort" => sort
+    }
+    query_digest = CursorToken.compute_query_digest(normalized_query_params)
+    corpus_revision = ApprovedReleaseManager.current_revision
+
+    cursor_tuple = nil
+    if @params[:cursor].present?
+      decode_result = CursorToken.decode(
+        @params[:cursor],
+        expected_revision: corpus_revision,
+        expected_query_digest: query_digest
+      )
+
+      unless decode_result.valid?
+        return fail_result(decode_result.error_code, decode_result.error_message)
+      end
+
+      cursor_tuple = decode_result.payload["tuple"]
     end
 
     scope = CanonicalPosting.active_approved.includes(source_mentions: :source_record)
@@ -95,28 +137,24 @@ class SearchPostings
       scope = scope.where(employment_type: emp_val)
     end
 
-    if @params[:min_salary_usd].present?
-      begin
-        min_salary = Integer(@params[:min_salary_usd])
-        if min_salary < 0
-          return fail_result("invalid_parameter", "min_salary_usd must be a non-negative integer")
-        end
-      rescue ArgumentError, TypeError
-        return fail_result("invalid_parameter", "min_salary_usd must be a non-negative integer")
-      end
-
-      # Must be annual USD compensation meeting or exceeding minimum
+    if min_sal_val.present?
       scope = scope.where(salary_currency: "USD", salary_period: "year")
-                   .where("COALESCE(canonical_postings.salary_max, canonical_postings.salary_min) >= ?", min_salary)
+                   .where("COALESCE(canonical_postings.salary_max, canonical_postings.salary_min) >= ?", min_sal_val)
     end
 
-    # 3. Scoring and ordering
-    scores = {}
+    # 3. Scoring
+    score_sql = nil
     if lexemes.any?
       score_sql = build_score_sql(lexemes)
       scope = scope.select("canonical_postings.*, (#{score_sql}) AS relevance_score")
     end
 
+    # 4. Keyset cursor filtering
+    if cursor_tuple.present?
+      scope = apply_keyset_filter(scope, sort, cursor_tuple, score_sql)
+    end
+
+    # 5. Ordering
     scope = case sort
             when "relevance"
               scope.order(Arel.sql("(#{score_sql}) DESC, canonical_postings.public_id ASC"))
@@ -128,7 +166,23 @@ class SearchPostings
               scope.order(Arel.sql("LOWER(canonical_postings.title) ASC, canonical_postings.public_id ASC"))
             end
 
-    postings = scope.limit(limit).to_a
+    # Lookahead: fetch limit + 1 records to check if next page exists
+    records = scope.limit(limit + 1).to_a
+    scores = {}
+
+    if records.length > limit
+      postings = records[0...limit]
+      last_item = postings.last
+      next_tuple = build_sort_tuple(last_item, sort)
+      next_cursor = CursorToken.encode(
+        corpus_revision: corpus_revision,
+        query_digest: query_digest,
+        sort_tuple: next_tuple
+      )
+    else
+      postings = records
+      next_cursor = nil
+    end
 
     if lexemes.any?
       postings.each do |p|
@@ -142,7 +196,9 @@ class SearchPostings
       scores: scores,
       sort: sort,
       query: q_param.presence,
-      limit: limit
+      limit: limit,
+      next_cursor: next_cursor,
+      corpus_revision: corpus_revision
     )
   end
 
@@ -190,6 +246,40 @@ class SearchPostings
       SQL
     end
     "(#{terms.join(' + ')})"
+  end
+
+  def apply_keyset_filter(scope, sort, tuple, score_sql)
+    last_id = ActiveRecord::Base.connection.quote(tuple[1].to_s)
+
+    case sort
+    when "relevance"
+      last_score = tuple[0].to_i
+      scope.where("((#{score_sql}) < :score) OR (((#{score_sql}) = :score) AND canonical_postings.public_id > :id)", score: last_score, id: tuple[1].to_s)
+    when "newest"
+      last_time = Time.parse(tuple[0].to_s).utc
+      scope.where("canonical_postings.last_observed_at < :time OR (canonical_postings.last_observed_at = :time AND canonical_postings.public_id > :id)", time: last_time, id: tuple[1].to_s)
+    when "company"
+      last_comp = tuple[0].to_s.downcase
+      scope.where("LOWER(canonical_postings.company) > :comp OR (LOWER(canonical_postings.company) = :comp AND canonical_postings.public_id > :id)", comp: last_comp, id: tuple[1].to_s)
+    when "title"
+      last_title = tuple[0].to_s.downcase
+      scope.where("LOWER(canonical_postings.title) > :title OR (LOWER(canonical_postings.title) = :title AND canonical_postings.public_id > :id)", title: last_title, id: tuple[1].to_s)
+    else
+      scope
+    end
+  end
+
+  def build_sort_tuple(posting, sort)
+    case sort
+    when "relevance"
+      [posting.attributes["relevance_score"].to_i, posting.public_id]
+    when "newest"
+      [posting.last_observed_at.iso8601, posting.public_id]
+    when "company"
+      [posting.company.downcase, posting.public_id]
+    when "title"
+      [posting.title.downcase, posting.public_id]
+    end
   end
 
   def fail_result(code, message)
