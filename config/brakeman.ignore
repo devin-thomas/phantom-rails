@@ -1,0 +1,75 @@
+{
+  "ignored_warnings": [
+    {
+      "warning_type": "SQL Injection",
+      "warning_code": 0,
+      "fingerprint": "147bcd2ae680e412cb887b6337c4ee52b4f628d131e71086bde31ba8774bc501",
+      "check_name": "SQL",
+      "message": "Possible SQL injection",
+      "file": "app/services/search_postings.rb",
+      "line": 149,
+      "link": "https://brakemanscanner.org/docs/warning_types/sql_injection/",
+      "code": "CanonicalPosting.active_approved.includes(:source_mentions => :source_record).where(\"canonical_postings.search_vector @@ plainto_tsquery('english', ?)\", params[:q].to_s.strip).where(\"LOWER(canonical_postings.company) = LOWER(?)\", params[:company].to_s.strip).where(\"LOWER(canonical_postings.location) = LOWER(?)\", params[:location].to_s.strip).where(:remote_type => :BRAKEMAN_SAFE_LITERAL).where(:employment_type => :BRAKEMAN_SAFE_LITERAL).where(:salary_currency => \"USD\", :salary_period => \"year\").where(\"COALESCE(canonical_postings.salary_max, canonical_postings.salary_min) >= ?\", nil).select(\"canonical_postings.*, (#{build_score_sql((extract_lexemes(params[:q].to_s.strip) or []))}) AS relevance_score\")",
+      "render_path": null,
+      "location": {
+        "type": "method",
+        "class": "SearchPostings",
+        "method": "call"
+      },
+      "user_input": "build_score_sql((extract_lexemes(params[:q].to_s.strip) or []))",
+      "confidence": "Medium",
+      "cwe_id": [
+        89
+      ],
+      "note": "Lexemes extracted via parameterized to_tsvector and each quoted with connection.quote. Verified safe against SQL injection in benchmark test 15."
+    },
+    {
+      "warning_type": "SQL Injection",
+      "warning_code": 0,
+      "fingerprint": "60279aa5ff1d502ac4180f91fd82d8167763c4b2a624d7f46564585c49925a9f",
+      "check_name": "SQL",
+      "message": "Possible SQL injection",
+      "file": "app/services/search_postings.rb",
+      "line": 257,
+      "link": "https://brakemanscanner.org/docs/warning_types/sql_injection/",
+      "code": "scope.where(\"((#{score_sql}) < :score) OR (((#{score_sql}) = :score) AND canonical_postings.public_id > :id)\", :score => tuple[0].to_i, :id => tuple[1].to_s)",
+      "render_path": null,
+      "location": {
+        "type": "method",
+        "class": "SearchPostings",
+        "method": "apply_keyset_filter"
+      },
+      "user_input": "score_sql",
+      "confidence": "Weak",
+      "cwe_id": [
+        89
+      ],
+      "note": "Relevance score SQL composed exclusively of safely quoted lexeme cases. Keyset tuple parameters safely bound via hash."
+    },
+    {
+      "warning_type": "SQL Injection",
+      "warning_code": 0,
+      "fingerprint": "6c971b95c60bc90544b677925e4aa0748e55da7a250cf19ad899b8a6b68a90f8",
+      "check_name": "SQL",
+      "message": "Possible SQL injection",
+      "file": "app/services/search_postings.rb",
+      "line": 160,
+      "link": "https://brakemanscanner.org/docs/warning_types/sql_injection/",
+      "code": "Arel.sql(\"(#{(nil or build_score_sql((extract_lexemes(params[:q].to_s.strip) or [])))}) DESC, canonical_postings.public_id ASC\")",
+      "render_path": null,
+      "location": {
+        "type": "method",
+        "class": "SearchPostings",
+        "method": "call"
+      },
+      "user_input": "build_score_sql((extract_lexemes(params[:q].to_s.strip) or []))",
+      "confidence": "Medium",
+      "cwe_id": [
+        89
+      ],
+      "note": "Dynamic ordering expression wraps quoted lexeme score SQL with deterministic public_id tie-breaker."
+    }
+  ],
+  "updated": "2026-10-09 17:25:56 +0000",
+  "brakeman_version": "8.1.0"
+}
