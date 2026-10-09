@@ -12,9 +12,32 @@ class CanonicalPosting < ApplicationRecord
   scope :active_approved, -> {
     joins(:approved_release)
       .where(approved_releases: { active: true })
-      .where("EXISTS (SELECT 1 FROM approved_release_revisions WHERE approved_release_revisions.approved_release_id = approved_releases.id)")
+      .where(<<~SQL)
+        EXISTS (
+          SELECT 1
+          FROM approved_release_revisions arr
+          JOIN source_revisions sr ON sr.id = arr.source_revision_id
+          JOIN source_mentions sm ON sm.id = sr.source_mention_id
+          WHERE arr.approved_release_id = approved_releases.id
+            AND sm.canonical_posting_id = canonical_postings.id
+        )
+      SQL
   }
-  scope :unapproved_staging, -> { left_outer_joins(:approved_release).where("approved_releases.id IS NULL OR approved_releases.active = false") }
+  scope :unapproved_staging, -> {
+    left_outer_joins(:approved_release)
+      .where(<<~SQL)
+        approved_releases.id IS NULL
+        OR approved_releases.active = false
+        OR NOT EXISTS (
+          SELECT 1
+          FROM approved_release_revisions arr
+          JOIN source_revisions sr ON sr.id = arr.source_revision_id
+          JOIN source_mentions sm ON sm.id = sr.source_mention_id
+          WHERE arr.approved_release_id = approved_releases.id
+            AND sm.canonical_posting_id = canonical_postings.id
+        )
+      SQL
+  }
 
   before_validation :generate_public_id, on: :create
   before_save :update_search_vector
@@ -29,12 +52,8 @@ class CanonicalPosting < ApplicationRecord
   def approved_revisions
     return source_revisions unless approved_release_id.present?
 
-    if approved_release&.approved_release_revisions&.exists?
-      source_revisions.joins(:approved_release_revisions)
-                      .where(approved_release_revisions: { approved_release_id: approved_release_id })
-    else
-      source_revisions.none
-    end
+    source_revisions.joins(:approved_release_revisions)
+                    .where(approved_release_revisions: { approved_release_id: approved_release_id })
   end
 
   def potential_duplicates

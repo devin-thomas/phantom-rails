@@ -11,7 +11,7 @@ class ApprovedReleaseManager
     active = ApprovedRelease.active.first
     return nil unless active
 
-    Digest::SHA256.hexdigest("#{active.manifest_digest}|#{active.corpus_version}|#{active.canonical_postings.count}|#{active.authority_fingerprint}")
+    Digest::SHA256.hexdigest("#{active.manifest_digest}|#{active.corpus_version}|#{CanonicalPosting.active_approved.count}|#{active.authority_fingerprint}")
   end
 
   def publish!(batch_content, manifest_content)

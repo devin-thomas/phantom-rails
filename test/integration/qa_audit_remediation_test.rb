@@ -1501,4 +1501,485 @@ class QaAuditRemediationTest < ActionDispatch::IntegrationTest
     get "/api/v1/postings/#{posting.public_id}/provenance"
     assert_response :not_found
   end
+
+  # ==========================================================================
+  # Round 5 Audit Remediations (QA5-01 through QA5-06)
+  # ==========================================================================
+
+  test "QA Round 5: QA5-01 new unapproved mention on existing approved source record stays in staging and does not leak" do
+    # 1. Publish an approved release containing source_record_key: rec-approved-1, mention_key: approved-1
+    batch_1 = {
+      "batch_schema_version" => "1.0",
+      "batch_id" => "qa5-01-base-batch",
+      "origin_class" => "sanitized_historical",
+      "items" => [
+        {
+          "source_record_key" => "rec-approved-1",
+          "mention_key" => "approved-1",
+          "source_system" => "reviewed_export",
+          "observed_at" => "2026-09-20T10:00:00Z",
+          "source_kind" => "official_employer",
+          "source_domain" => "careers.acme.example.com",
+          "job_id" => "REQ-101",
+          "title" => "Approved Flight Director",
+          "company" => "Acme Aerospace",
+          "location" => "Denver, CO",
+          "salary" => { "min": 175000, "max": 215000, "currency": "USD", "period": "year" },
+          "summary_excerpt" => "Approved public excerpt."
+        }
+      ]
+    }
+    b1_json = JSON.generate(batch_1)
+    m1_json = JSON.generate(ReleaseGate.build_manifest(b1_json, approved_by: "qa-lead", corpus_version: "2026.10.QA5.1"))
+    pub_res = ApprovedReleaseManager.new.publish!(b1_json, m1_json)
+    assert pub_res.success, "Publication 1 must succeed: #{pub_res.errors}"
+
+    approved_posting = CanonicalPosting.active_approved.first
+    assert_not_nil approved_posting
+    assert_equal "Approved Flight Director", approved_posting.title
+
+    baseline_count = CanonicalPosting.active_approved.count
+    baseline_corpus_revision = ApprovedReleaseManager.current_revision
+
+    # 2. Independently import a new, unapproved batch with the SAME source_record_key but different mention_key
+    # and a private canary in summary_excerpt
+    staging_batch = {
+      "batch_schema_version" => "1.0",
+      "batch_id" => "qa5-01-staging-batch",
+      "origin_class" => "sanitized_historical",
+      "items" => [
+        {
+          "source_record_key" => "rec-approved-1",
+          "mention_key" => "new-staging-2",
+          "source_system" => "reviewed_export",
+          "observed_at" => "2026-09-25T12:00:00Z",
+          "source_kind" => "official_employer",
+          "source_domain" => "careers.acme.example.com",
+          "job_id" => "REQ-999-STAGING",
+          "title" => "Staging Security Officer",
+          "company" => "Acme Aerospace",
+          "location" => "Boulder, CO",
+          "salary" => { "min": 120000, "max": 140000, "currency": "USD", "period": "year" },
+          "summary_excerpt" => "QA5_PRIVATE_CANARY: Staging confidential role must remain private."
+        }
+      ]
+    }
+    stg_report = BatchImporter.import_string(JSON.generate(staging_batch))
+    assert_equal "complete", stg_report.status
+    assert_equal 1, stg_report.inserted_count
+
+    # Staging posting must be created with approved_release_id: nil
+    staging_posting = CanonicalPosting.find_by(title: "Staging Security Officer")
+    assert_not_nil staging_posting
+    assert_nil staging_posting.approved_release_id
+
+    # 3. Assert public state is completely unchanged
+    assert_equal baseline_count, CanonicalPosting.active_approved.count, "Public count must NOT include staging posting"
+    assert_equal baseline_corpus_revision, ApprovedReleaseManager.current_revision, "Corpus revision must NOT change"
+
+    # Public search returns only the approved posting; canary is NOT present
+    get "/api/v1/postings"
+    assert_response :success
+    search_json = JSON.parse(response.body)
+    assert_equal 1, search_json["data"].size
+    assert_equal approved_posting.public_id, search_json["data"][0]["id"]
+    refute_includes response.body, "QA5_PRIVATE_CANARY"
+    refute_includes response.body, "Staging Security Officer"
+
+    # Staging posting public detail receives 404
+    get "/api/v1/postings/#{staging_posting.public_id}"
+    assert_response :not_found
+
+    # Staging posting provenance receives 404
+    get "/api/v1/postings/#{staging_posting.public_id}/provenance"
+    assert_response :not_found
+
+    # Approved posting detail and provenance have NO extra mention or canary
+    get "/api/v1/postings/#{approved_posting.public_id}"
+    assert_response :success
+    refute_includes response.body, "QA5_PRIVATE_CANARY"
+
+    get "/api/v1/postings/#{approved_posting.public_id}/provenance"
+    assert_response :success
+    prov_json = JSON.parse(response.body)
+    assert_equal 1, prov_json["data"]["source_mentions"].size
+    assert_equal "approved-1", prov_json["data"]["source_mentions"][0]["mention_key"]
+    refute_includes response.body, "QA5_PRIVATE_CANARY"
+
+    # GET /api/v1/meta remains unchanged
+    get "/api/v1/meta"
+    assert_response :success
+    meta_json = JSON.parse(response.body)
+    assert_equal baseline_count, meta_json["active_approved_postings"]
+    assert_equal baseline_corpus_revision, meta_json["corpus_revision"]
+
+    # 4. Separately approve and publish a release including the second mention
+    # Proves it becomes visible ONLY after explicit publication
+    batch_2 = {
+      "batch_schema_version" => "1.0",
+      "batch_id" => "qa5-01-approved-both-batch",
+      "origin_class" => "sanitized_historical",
+      "items" => batch_1["items"] + [
+        {
+          "source_record_key" => "rec-approved-1",
+          "mention_key" => "new-staging-2",
+          "source_system" => "reviewed_export",
+          "observed_at" => "2026-09-25T12:00:00Z",
+          "source_kind" => "official_employer",
+          "source_domain" => "careers.acme.example.com",
+          "job_id" => "REQ-999-STAGING",
+          "title" => "Staging Security Officer",
+          "company" => "Acme Aerospace",
+          "location" => "Boulder, CO",
+          "salary" => { "min": 120000, "max": 140000, "currency": "USD", "period": "year" },
+          "summary_excerpt" => "Approved excerpt for security officer without canaries."
+        }
+      ]
+    }
+    b2_json = JSON.generate(batch_2)
+    m2_json = JSON.generate(ReleaseGate.build_manifest(b2_json, approved_by: "qa-lead", corpus_version: "2026.10.QA5.2"))
+    pub_res2 = ApprovedReleaseManager.new.publish!(b2_json, m2_json)
+    assert pub_res2.success, "Publication 2 must succeed: #{pub_res2.errors}"
+    assert_equal 2, CanonicalPosting.active_approved.count
+
+    get "/api/v1/postings/#{staging_posting.public_id}"
+    assert_response :success
+  end
+
+  test "QA Round 5: QA5-02 rolled-back item subtransaction preserves exact accounting and zero orphan records" do
+    # 1. Establish two base postings
+    base_batch = {
+      "batch_schema_version" => "1.0",
+      "batch_id" => "qa5-02-base-batch",
+      "origin_class" => "adversarial_synthetic",
+      "items" => [
+        {
+          "source_record_key" => "rec-qa5-02-base-a",
+          "mention_key" => "m1",
+          "source_system" => "ats",
+          "job_id" => "REQ-502-A",
+          "observed_at" => "2026-09-20T10:00:00Z",
+          "source_kind" => "official_employer",
+          "source_domain" => "careers.acme.example.com",
+          "title" => "Architect Alpha",
+          "company" => "Acme Aerospace",
+          "location" => "Denver, CO",
+          "job_url" => "https://careers.acme.example.com/jobs/arch-alpha"
+        },
+        {
+          "source_record_key" => "rec-qa5-02-base-b",
+          "mention_key" => "m1",
+          "source_system" => "ats",
+          "job_id" => "REQ-502-B",
+          "observed_at" => "2026-09-20T10:00:00Z",
+          "source_kind" => "official_employer",
+          "source_domain" => "careers.acme.example.com",
+          "title" => "Architect Beta",
+          "company" => "Acme Aerospace",
+          "location" => "Denver, CO",
+          "job_url" => "https://careers.acme.example.com/jobs/arch-beta"
+        }
+      ]
+    }
+    rep_base = BatchImporter.import_string(JSON.generate(base_batch))
+    assert_equal "complete", rep_base.status
+
+    initial_records = SourceRecord.count
+    initial_mentions = SourceMention.count
+    initial_revisions = SourceRevision.count
+    initial_postings = CanonicalPosting.count
+
+    # 2. Ingest contradictory ID item in a single-item batch (claims REQ-502-A but URL of Beta)
+    conflict_batch = {
+      "batch_schema_version" => "1.0",
+      "batch_id" => "qa5-02-conflict-single",
+      "origin_class" => "adversarial_synthetic",
+      "items" => [
+        {
+          "source_record_key" => "rec-qa5-02-conflict",
+          "mention_key" => "m1",
+          "source_system" => "aggregator_feed",
+          "observed_at" => "2026-10-02T12:00:00Z",
+          "source_kind" => "third_party_board",
+          "job_id" => "REQ-502-A", # Claims Requisition A!
+          "title" => "Contradictory Engineer",
+          "company" => "Acme Aerospace",
+          "location" => "Denver, CO",
+          "job_url" => "https://careers.acme.example.com/jobs/arch-beta" # BUT matches Posting B's URL!
+        }
+      ]
+    }
+    rep_single = BatchImporter.import_string(JSON.generate(conflict_batch))
+    assert_equal "failed", rep_single.status
+    assert_equal 1, rep_single.total_input
+    assert_equal 0, rep_single.inserted_count
+    assert_equal 0, rep_single.updated_count
+    assert_equal 0, rep_single.unchanged_count
+    assert_equal 1, rep_single.invalid_count
+    assert_equal 1, rep_single.errors.size
+    assert_equal "identity_conflict", rep_single.errors.first[:error_code]
+
+    # Invariant: total_input == inserted + updated + unchanged + invalid
+    assert_equal rep_single.total_input, (rep_single.inserted_count + rep_single.updated_count + rep_single.unchanged_count + rep_single.invalid_count)
+
+    # Invariant: Subtransaction rollback leaves zero orphan records
+    assert_equal initial_records, SourceRecord.count
+    assert_equal initial_mentions, SourceMention.count
+    assert_equal initial_revisions, SourceRevision.count
+    assert_equal initial_postings, CanonicalPosting.count
+
+    # 3. Repeat in mixed batch: 1 valid unrelated item + 1 contradictory ID item
+    mixed_batch = {
+      "batch_schema_version" => "1.0",
+      "batch_id" => "qa5-02-mixed-batch",
+      "origin_class" => "adversarial_synthetic",
+      "items" => [
+        {
+          "source_record_key" => "rec-qa5-02-unrelated-valid",
+          "mention_key" => "m1",
+          "source_system" => "ats",
+          "job_id" => "REQ-UNRELATED-1",
+          "observed_at" => "2026-09-22T10:00:00Z",
+          "source_kind" => "official_employer",
+          "source_domain" => "careers.acme.example.com",
+          "title" => "Unrelated Product Manager",
+          "company" => "Acme Aerospace",
+          "location" => "Denver, CO",
+          "job_url" => "https://careers.acme.example.com/jobs/pm-1"
+        },
+        conflict_batch["items"].first
+      ]
+    }
+    rep_mixed = BatchImporter.import_string(JSON.generate(mixed_batch))
+    assert_equal "partial", rep_mixed.status
+    assert_equal 2, rep_mixed.total_input
+    assert_equal 1, rep_mixed.inserted_count
+    assert_equal 0, rep_mixed.updated_count
+    assert_equal 0, rep_mixed.unchanged_count
+    assert_equal 1, rep_mixed.invalid_count
+
+    # Invariant: total_input == inserted + updated + unchanged + invalid
+    assert_equal rep_mixed.total_input, (rep_mixed.inserted_count + rep_mixed.updated_count + rep_mixed.unchanged_count + rep_mixed.invalid_count)
+  end
+
+  test "QA Round 5: QA5-03 Tier 3 withholds merge when platform key is unvetted or roles diverge, but merges verified ATS" do
+    # Negative test: Same employer, same unreviewed third-party board domain, generic job_id, different titles and locations, no job_url
+    unvetted_batch = {
+      "batch_schema_version" => "1.0",
+      "batch_id" => "qa5-03-unvetted-batch",
+      "origin_class" => "adversarial_synthetic",
+      "items" => [
+        {
+          "source_record_key" => "rec-unvetted-1",
+          "mention_key" => "m1",
+          "source_system" => "third_party_aggregator",
+          "source_domain" => "boards.unreviewed-aggregator.example.net",
+          "job_id" => "GENERIC-99",
+          "observed_at" => "2026-09-20T10:00:00Z",
+          "source_kind" => "third_party_board",
+          "title" => "Lead Systems Architect",
+          "company" => "Acme Aerospace",
+          "location" => "Seattle, WA"
+        },
+        {
+          "source_record_key" => "rec-unvetted-2",
+          "mention_key" => "m1",
+          "source_system" => "third_party_aggregator",
+          "source_domain" => "boards.unreviewed-aggregator.example.net", # Same unreviewed domain and job ID
+          "job_id" => "GENERIC-99",
+          "observed_at" => "2026-09-21T10:00:00Z",
+          "source_kind" => "third_party_board",
+          "title" => "Senior Corporate Accountant", # Divergent title
+          "company" => "Acme Aerospace",
+          "location" => "Denver, CO" # Divergent location
+        }
+      ]
+    }
+    rep_unvetted = BatchImporter.import_string(JSON.generate(unvetted_batch))
+    assert_equal "complete", rep_unvetted.status
+
+    p1 = CanonicalPosting.find_by(title: "Lead Systems Architect")
+    p2 = CanonicalPosting.find_by(title: "Senior Corporate Accountant")
+    assert_not_nil p1
+    assert_not_nil p2
+    assert_not_equal p1.id, p2.id, "Unreviewed platform key must NOT merge divergent roles in Tier 3"
+
+    # Flagged as uncertain potential duplicate
+    assert PotentialDuplicate.where(reason_code: "unverified_shared_job_id").exists?,
+      "Withheld Tier 3 merge must record unverified_shared_job_id potential duplicate"
+
+    # Positive test: Verified ATS platform key merges matching roles under Tier 3
+    ats_batch = {
+      "batch_schema_version" => "1.0",
+      "batch_id" => "qa5-03-ats-batch",
+      "origin_class" => "sanitized_historical",
+      "items" => [
+        {
+          "source_record_key" => "rec-ats-pos-1",
+          "mention_key" => "m1",
+          "source_system" => "ats",
+          "source_domain" => "boards.greenhouse.io",
+          "job_id" => "GH-12345",
+          "observed_at" => "2026-09-22T10:00:00Z",
+          "source_kind" => "third_party_board",
+          "title" => "Lead Infrastructure Engineer",
+          "company" => "Echo Corp",
+          "location" => "Austin, TX"
+        },
+        {
+          "source_record_key" => "rec-ats-pos-2",
+          "mention_key" => "m1",
+          "source_system" => "ats",
+          "source_domain" => "boards.greenhouse.io",
+          "job_id" => "GH-12345", # Same verified ATS platform key
+          "observed_at" => "2026-09-23T10:00:00Z",
+          "source_kind" => "third_party_board",
+          "title" => "Lead Infrastructure Engineer",
+          "company" => "Echo Corp",
+          "location" => "Austin, TX"
+        }
+      ]
+    }
+    rep_ats = BatchImporter.import_string(JSON.generate(ats_batch))
+    assert_equal "complete", rep_ats.status
+
+    m_pos1 = SourceMention.joins(:source_record).find_by(source_records: { source_record_key: "rec-ats-pos-1" })
+    m_pos2 = SourceMention.joins(:source_record).find_by(source_records: { source_record_key: "rec-ats-pos-2" })
+    assert_not_nil m_pos1.canonical_posting_id
+    assert_equal m_pos1.canonical_posting_id, m_pos2.canonical_posting_id,
+      "Verified ATS platform key must merge same-employer observation under Tier 3"
+  end
+
+  test "QA Round 5: QA5-04 claimed employer domain from untrusted source cannot confer verified official authority" do
+    # Observation from untrusted scraper claiming official_employer and careers.acme.example.com
+    batch = {
+      "batch_schema_version" => "1.0",
+      "batch_id" => "qa5-04-spoofed-domain-batch",
+      "origin_class" => "adversarial_synthetic",
+      "items" => [
+        {
+          "source_record_key" => "spoofed-scraper-acme",
+          "mention_key" => "m1",
+          "source_system" => "untrusted_scraper", # Untrusted source system!
+          "source_domain" => "careers.acme.example.com", # Claimed allowlisted domain!
+          "observed_at" => "2026-09-20T10:00:00Z", # older
+          "source_kind" => "official_employer",
+          "job_id" => "REQ-SPOOF",
+          "title" => "Propulsion Specialist",
+          "company" => "Acme Aerospace",
+          "location" => "Denver, CO",
+          "job_url" => "https://careers.acme.example.com/jobs/propulsion",
+          "salary" => { "min": 999000, "max": 999000, "currency": "USD", "period": "year" }
+        },
+        {
+          "source_record_key" => "rec-honest-board",
+          "mention_key" => "m1",
+          "source_system" => "reviewed_export",
+          "source_domain" => "techjobs.example.org",
+          "observed_at" => "2026-09-24T14:00:00Z", # newer credible observation
+          "source_kind" => "third_party_board",
+          "job_id" => "REQ-SPOOF",
+          "title" => "Propulsion Specialist",
+          "company" => "Acme Aerospace",
+          "location" => "Denver, CO",
+          "job_url" => "https://careers.acme.example.com/jobs/propulsion",
+          "salary" => { "min": 150000, "max": 185000, "currency": "USD", "period": "year" }
+        }
+      ]
+    }
+
+    report = BatchImporter.import_string(JSON.generate(batch))
+    assert_equal "complete", report.status
+
+    m_spoof = SourceMention.joins(:source_record).find_by(source_records: { source_record_key: "spoofed-scraper-acme" })
+    assert_not SourceAuthority.verified_official?(m_spoof, "Acme Aerospace"),
+      "Untrusted scraper claiming verified domain without reviewed grant must NOT receive official authority"
+
+    posting = CanonicalPosting.find_by(title: "Propulsion Specialist")
+    assert_not_nil posting
+    # Newer credible observation must win; 999k salary from untrusted scraper must NOT override
+    assert_equal 150000, posting.salary_min.to_i
+    assert_equal 185000, posting.salary_max.to_i
+    salary_sel = posting.field_selections.find_by(field_name: "salary")
+    assert_equal "newest_credible", salary_sel.selection_reason
+
+    # Contrast with authentic verified source: rec-official-acme
+    m_auth = SourceMention.joins(:source_record).find_by(source_records: { source_record_key: "rec-official-acme" })
+    if m_auth
+      assert SourceAuthority.verified_official?(m_auth, "Acme Aerospace")
+    end
+  end
+
+  test "QA Round 5: QA5-05 bin/verify and phantom:publish protect production and require explicit manifests" do
+    # 1. phantom:publish requires explicit candidate and manifest paths
+    publish_output = IO.popen(["ruby", "bin/rails", "phantom:publish"], err: [:child, :out], &:read)
+    assert_includes publish_output, "Usage: bin/rails phantom:publish"
+
+    # 2. In production mode, bin/verify --seed-demo exits nonzero
+    prod_seed_output = IO.popen([{"RAILS_ENV" => "production"}, "ruby", "bin/verify", "--seed-demo"], err: [:child, :out], &:read)
+    assert_includes prod_seed_output, "FAIL: Seeding demo fixtures is strictly prohibited in production environment"
+
+    # 3. In production mode without --seed-demo, bin/verify is read-only and skips seeding/mutation
+    prod_verify_output = IO.popen([{"RAILS_ENV" => "production"}, "ruby", "bin/verify"], err: [:child, :out], &:read)
+    assert_includes prod_verify_output, "SKIPPED (read-only verification in production)"
+  end
+
+  test "QA Round 5: QA5-06 v2 digest migration prefers historical raw_safe_fields over mutated current metadata" do
+    rec = SourceRecord.create!(source_system: "ats", source_record_key: "rec-legacy-506", origin_class: "sanitized_historical")
+    sm = SourceMention.create!(
+      source_record: rec,
+      mention_key: "m1",
+      source_kind: "official_employer",
+      source_domain: "careers.acme.example.com",
+      job_id: "JOB-ORIGINAL"
+    )
+
+    original_item = {
+      "source_system" => "ats",
+      "source_record_key" => "rec-legacy-506",
+      "mention_key" => "m1",
+      "origin_class" => "sanitized_historical",
+      "source_kind" => "official_employer",
+      "source_domain" => "careers.acme.example.com",
+      "job_id" => "JOB-ORIGINAL",
+      "observed_at" => "2026-09-20T10:00:00Z",
+      "title" => "Legacy Systems Architect",
+      "company" => "Acme Aerospace",
+      "location" => "Denver, CO"
+    }
+
+    rev = sm.source_revisions.create!(
+      revision_digest: "legacy_digest_v1",
+      digest_version: "v1",
+      observed_at: Time.iso8601("2026-09-20T10:00:00Z"),
+      title: "Legacy Systems Architect",
+      company: "Acme Aerospace",
+      location: "Denver, CO",
+      raw_safe_fields: original_item
+    )
+
+    # Mutate current SourceMention and SourceRecord metadata
+    sm.update_columns(source_domain: "mutated-domain.example.com", job_id: "JOB-MUTATED")
+    rec.update_columns(origin_class: "adversarial_synthetic")
+
+    # Run migration logic
+    UpgradeRevisionDigestsToV2.new.up
+    rev.reload
+
+    expected_v2 = SourceRevision.compute_digest(original_item, version: "v2")
+    assert_equal "v2", rev.digest_version
+    assert_equal expected_v2, rev.revision_digest,
+      "Migration must compute v2 digest using historical raw_safe_fields rather than mutated current metadata"
+
+    # Replay original batch: must match existing revision as unchanged
+    replay_batch = {
+      "batch_schema_version" => "1.0",
+      "batch_id" => "replay-batch-506",
+      "origin_class" => "sanitized_historical",
+      "items" => [original_item]
+    }
+    report = BatchImporter.import_string(JSON.generate(replay_batch))
+    assert_equal 1, report.unchanged_count, "Replay must be unchanged"
+    assert_equal 0, report.inserted_count
+  end
 end

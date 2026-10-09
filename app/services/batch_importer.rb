@@ -135,6 +135,8 @@ class BatchImporter
     # Process valid items transactionally
     executable_items.each do |raw_item|
       item = Sanitizer.sanitize_item(raw_item)
+      item_outcome = nil
+
       ActiveRecord::Base.transaction(requires_new: true) do
         rec = SourceRecord.find_or_create_by!(
           source_system: item["source_system"],
@@ -145,13 +147,7 @@ class BatchImporter
 
         # QA3-03: Reject cross-origin reuse of existing source record
         if rec.origin_class.present? && item["origin_class"].present? && rec.origin_class != item["origin_class"]
-          invalid_errors << {
-            item_index: raw_item["_batch_index"] || -1,
-            item_identifier: "#{item['source_record_key']}/#{item['mention_key']}",
-            error_code: "origin_class_conflict",
-            error_message: "Source record #{item['source_system']}:#{item['source_record_key']} origin class conflict: existing '#{rec.origin_class}' vs incoming '#{item['origin_class']}'"
-          }
-          next
+          raise "origin_class_conflict: Source record #{item['source_system']}:#{item['source_record_key']} origin class conflict: existing '#{rec.origin_class}' vs incoming '#{item['origin_class']}'"
         end
 
         mention = SourceMention.find_or_create_by!(
@@ -168,13 +164,7 @@ class BatchImporter
         has_job_id_conflict = mention.job_id.present? && item["job_id"].present? && mention.job_id != item["job_id"]
 
         if has_domain_conflict || has_job_id_conflict
-          invalid_errors << {
-            item_index: raw_item["_batch_index"] || -1,
-            item_identifier: "#{item['source_record_key']}/#{item['mention_key']}",
-            error_code: "identity_conflict",
-            error_message: "Conflicting identity metadata for mention #{item['mention_key']}: existing (domain=#{mention.source_domain}, job_id=#{mention.job_id}) vs incoming (domain=#{item['source_domain']}, job_id=#{item['job_id']})"
-          }
-          next
+          raise "identity_conflict: Conflicting identity metadata for mention #{item['mention_key']}: existing (domain=#{mention.source_domain}, job_id=#{mention.job_id}) vs incoming (domain=#{item['source_domain']}, job_id=#{item['job_id']})"
         end
 
         # If existing mention lacked domain or job_id, backfill it safely unless approved
@@ -191,7 +181,7 @@ class BatchImporter
           if existing_rev.revision_digest == v1_digest && existing_rev.revision_digest != v2_digest
             existing_rev.update_columns(revision_digest: v2_digest, digest_version: "v2")
           end
-          unchanged += 1
+          item_outcome = :unchanged
         else
           is_first = mention.source_revisions.empty?
 
@@ -214,18 +204,21 @@ class BatchImporter
             raw_safe_fields: item
           )
 
-          if is_first
-            inserted += 1
-          else
-            updated += 1
-          end
-
           # Resolve canonical posting identity deterministically for new or updated revisions
           res = IdentityResolver.resolve_mention(mention)
           if res.status == :identity_conflict
             raise "identity_conflict: #{res.conflict_reason}"
           end
+
+          item_outcome = is_first ? :inserted : :updated
         end
+      end
+
+      # QA5-02: Apply outcome to aggregate counts strictly upon successful commit
+      case item_outcome
+      when :inserted then inserted += 1
+      when :updated  then updated += 1
+      when :unchanged then unchanged += 1
       end
     rescue StandardError => e
       idx = raw_item["_batch_index"] || -1

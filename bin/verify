@@ -18,6 +18,18 @@ rescue => e
   raise
 end
 
+is_production = Rails.env.production?
+seed_flag = ARGV.include?("--seed-demo")
+allow_seed_env = ENV["DEMO_SEED_ALLOW"] == "true"
+is_test_env = Rails.env.test?
+
+if seed_flag && is_production
+  puts "FAIL: Seeding demo fixtures is strictly prohibited in production environment"
+  exit 1
+end
+
+should_seed = (seed_flag || allow_seed_env || is_test_env) && !is_production
+
 begin
   step("Verifying database connectivity") do
     ActiveRecord::Base.connection.execute("SELECT 1")
@@ -29,17 +41,25 @@ begin
     end
   end
 
-  step("Seeding approved public release fixtures") do
-    batch_file = Rails.root.join("fixtures", "public-approved", "approved-batch-v1.json")
-    manifest_file = Rails.root.join("fixtures", "public-approved", "approved-manifest-v1.json")
-    res = ApprovedReleaseManager.publish_files!(batch_file, manifest_file)
-    raise "Seed failed: #{res.errors.join(', ')}" unless res.success
-    raise "Expected exactly 4 active postings, got #{res.postings_count}" unless res.postings_count == 4
+  if should_seed
+    step("Seeding approved public release fixtures") do
+      batch_file = Rails.root.join("fixtures", "public-approved", "approved-batch-v1.json")
+      manifest_file = Rails.root.join("fixtures", "public-approved", "approved-manifest-v1.json")
+      res = ApprovedReleaseManager.publish_files!(batch_file, manifest_file)
+      raise "Seed failed: #{res.errors.join(', ')}" unless res.success
+      raise "Expected exactly 4 active postings, got #{res.postings_count}" unless res.postings_count == 4
+    end
+  else
+    puts "[*] Seeding approved public release fixtures... SKIPPED (read-only verification)"
   end
 
-  step("Running complete automated test suite") do
-    test_result = system("ruby bin/rails test")
-    raise "Test suite failed!" unless test_result
+  if is_production
+    puts "[*] Running complete automated test suite... SKIPPED (read-only verification in production)"
+  else
+    step("Running complete automated test suite") do
+      test_result = system("ruby bin/rails test")
+      raise "Test suite failed!" unless test_result
+    end
   end
 
   step("Validating OpenAPI 3.1 specification schema") do

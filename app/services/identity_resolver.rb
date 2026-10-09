@@ -5,6 +5,18 @@ require "uri"
 class IdentityResolver
   ResolveResult = Struct.new(:canonical_posting, :tier, :status, :potential_duplicates_found, :conflict_reason, keyword_init: true)
 
+  VETTED_ATS_DOMAINS = %w[
+    greenhouse.io
+    lever.co
+    workday.com
+    myworkdayjobs.com
+    ashbyhq.com
+    smartrecruiters.com
+    icims.com
+    taleo.net
+    jobvite.com
+  ].freeze
+
   def self.resolve_mention(mention)
     new.resolve(mention)
   end
@@ -137,7 +149,7 @@ class IdentityResolver
       job_url: latest_rev.job_url,
       first_observed_at: first_obs,
       last_observed_at: first_obs,
-      approved_release_id: mention.source_record&.approved_release_id
+      approved_release_id: nil
     )
 
     mention.update!(canonical_posting: new_posting)
@@ -192,6 +204,9 @@ class IdentityResolver
 
   def raw_tier3_candidates(mention, rev)
     return [] unless mention.source_domain.present? && mention.job_id.present? && rev.company.present?
+    # QA5-03: Platform key must be vetted before treating as strong candidate
+    return [] unless vetted_platform_key?(mention, rev)
+
     norm_company = rev.company.strip.downcase
     scope = candidate_posting_scope(mention)
 
@@ -236,8 +251,58 @@ class IdentityResolver
   def find_tier3_candidates(mention, rev, raw_candidates = nil)
     candidates = raw_candidates || raw_tier3_candidates(mention, rev)
     return [] if candidates.empty?
+    return [] unless vetted_platform_key?(mention, rev)
 
-    candidates.select { |p| !has_conflicting_identifiers?(mention, rev, p) }
+    candidates.select do |p|
+      p.source_mentions.any? { |sm| vetted_platform_key?(sm, rev) } &&
+        !tier3_incompatible?(rev, p) &&
+        !has_conflicting_identifiers?(mention, rev, p)
+    end
+  end
+
+  def vetted_platform_key?(mention, rev)
+    return false if mention.source_domain.blank? || mention.job_id.blank?
+
+    norm_company = rev.company.to_s.strip.downcase
+    dom = mention.source_domain.to_s.strip.downcase
+    sys = mention.source_record&.source_system.to_s.strip.downcase
+
+    # 1. Recognized ATS domain host or subdomain
+    is_vetted_ats_domain = VETTED_ATS_DOMAINS.any? do |ats_dom|
+      dom == ats_dom || dom.end_with?(".#{ats_dom}")
+    end
+    return true if is_vetted_ats_domain
+
+    # 2. Operator-reviewed verified employer domain for this employer
+    verified_domains = SourceAuthority.verified_domains_map[norm_company] || []
+    return true if verified_domains.include?(dom)
+
+    # 3. Trusted ATS / direct employer ingestion system
+    return true if SourceAuthority::TRUSTED_SYSTEMS.include?(sys)
+
+    false
+  end
+
+  def tier3_incompatible?(rev, candidate_posting)
+    norm_rev_title = normalize_title_for_comparison(rev.title)
+    norm_cand_title = normalize_title_for_comparison(candidate_posting.title)
+    titles_diverge = norm_rev_title.present? && norm_cand_title.present? && norm_rev_title != norm_cand_title
+
+    norm_rev_loc = rev.location.to_s.strip.downcase
+    norm_cand_loc = candidate_posting.location.to_s.strip.downcase
+    locs_diverge = norm_rev_loc.present? && norm_cand_loc.present? && norm_rev_loc != norm_cand_loc
+
+    # Differing title AND differing location indicate completely separate roles
+    return true if titles_diverge && locs_diverge
+
+    # Incompatible titles with no overlapping words
+    if titles_diverge
+      rev_words = norm_rev_title.split
+      cand_words = norm_cand_title.split
+      return true if (rev_words & cand_words).empty?
+    end
+
+    false
   end
 
   def candidate_posting_scope(mention)

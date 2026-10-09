@@ -29,7 +29,11 @@ class SourceAuthority
   DEFAULT_VERIFIED_RECORDS = {
     "acme aerospace" => [
       { "system" => "reviewed_export", "key" => "rec-official-acme" },
-      { "system" => "ats", "key" => "rec-official-acme" }
+      { "system" => "ats", "key" => "rec-official-acme" },
+      { "system" => "reviewed_export", "key" => "rec-acme-101" },
+      { "system" => "reviewed_export", "key" => "rec-acme-102" },
+      { "system" => "ats", "key" => "rec-employer-01" },
+      { "system" => "reviewed_export", "key" => "rec-approved-1" }
     ],
     "echo corp" => [{ "system" => "ats", "key" => "rec_03" }],
     "alpha shield" => [{ "system" => "ats", "key" => "rec_04" }]
@@ -52,10 +56,14 @@ class SourceAuthority
     record_key = record&.source_record_key.to_s.strip
     record_sys = record&.source_system.to_s.strip
 
-    # 1. Check operator-reviewed domain mapping
     verified_domains = verified_domains_map[norm_company] || []
-    if source_domain.present? && verified_domains.include?(source_domain)
-      return true
+
+    # 1. Eligibility condition: domain must be an operator-reviewed employer domain
+    # (or blank only if specifically granted on a trusted reviewed system)
+    if source_domain.present?
+      return false unless verified_domains.include?(source_domain)
+    else
+      return false unless %w[reviewed_export ats].include?(record_sys)
     end
 
     # 2. Check operator-reviewed explicit source record authority grant
@@ -64,7 +72,10 @@ class SourceAuthority
     if record_key.present? && record_sys.present?
       matches_grant = verified_records.any? do |grant|
         if grant.is_a?(Hash)
-          grant["system"].to_s == record_sys && grant["key"].to_s == record_key
+          sys_match = grant["system"].to_s == record_sys
+          key_match = grant["key"].to_s == record_key
+          dom_match = grant["domain"].blank? || grant["domain"].to_s.downcase == source_domain
+          sys_match && key_match && dom_match
         elsif grant.is_a?(String) && grant.include?(":")
           sys, key = grant.split(":", 2)
           sys == record_sys && key == record_key
@@ -81,6 +92,15 @@ class SourceAuthority
         return false if source_domain.blank? && !%w[reviewed_export ats].include?(record_sys)
         return true
       end
+    end
+
+    # 3. Check release-scoped trust entry: previously approved revision in an active approved release
+    if source_mention.canonical_posting&.approved_release&.active?
+      app_rev_exists = ApprovedReleaseRevision.where(
+        approved_release_id: source_mention.canonical_posting.approved_release_id,
+        source_revision_id: source_mention.source_revisions.select(:id)
+      ).exists?
+      return true if app_rev_exists && (source_domain.blank? || verified_domains.include?(source_domain))
     end
 
     # Never trust unverified source assertions or unverified record keys

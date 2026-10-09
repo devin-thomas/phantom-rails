@@ -30,8 +30,13 @@ namespace :phantom do
 
   desc "Publish an approved release candidate with signed manifest"
   task :publish, [:batch_file, :manifest_file] => :environment do |_t, args|
-    batch_file = args[:batch_file] || Rails.root.join("fixtures", "public-approved", "approved-batch-v1.json")
-    manifest_file = args[:manifest_file] || Rails.root.join("fixtures", "public-approved", "approved-manifest-v1.json")
+    batch_file = args[:batch_file]
+    manifest_file = args[:manifest_file]
+
+    unless batch_file.present? && manifest_file.present? && File.exist?(batch_file) && File.exist?(manifest_file)
+      puts "Usage: bin/rails phantom:publish[path/to/batch.json,path/to/manifest.json]"
+      exit 1
+    end
 
     res = ApprovedReleaseManager.publish_files!(batch_file, manifest_file)
     if res.success
@@ -72,6 +77,11 @@ namespace :phantom do
 
   desc "Seed approved public fixtures into active release projection"
   task seed: :environment do
+    if Rails.env.production? && ENV["DEMO_SEED_ALLOW"] != "true"
+      puts "Cannot seed demo fixtures in production without DEMO_SEED_ALLOW=true"
+      exit 1
+    end
+
     batch_file = Rails.root.join("fixtures", "public-approved", "approved-batch-v1.json")
     manifest_file = Rails.root.join("fixtures", "public-approved", "approved-manifest-v1.json")
 
