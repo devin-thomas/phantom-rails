@@ -441,7 +441,35 @@ Following independent QA code audits, the following guarantees and protections w
 7. **QA4-07: Legacy Timestamp Fallback Removal & Strict Membership Fail-Closed Protection (P2):**
    - Removed timestamp inference heuristic (`created_at <= approved_at + 1.second`); replaced with strict `approved_release_revisions` membership across `CanonicalPosting#approved_revisions`, `CanonicalPosting.active_approved`, and `ProvenanceSerializer#render_mentions`.
    - Releases lacking memberships fail closed (HTTP 404 `:not_found` for public queries) and refuse activation (`activate!`).
-8. **Final Qualification Totals:**
+8. **Round 4 Final Qualification Totals:**
    - Automated test suite: **110 tests, 648 assertions, 0 failures, 0 errors, 0 skips**.
    - Brakeman security scan: **0 active warnings, 3 ignored SQL warnings**.
    - Single-command qualification `bin/verify`: **ALL 7 GATES PASS (EXIT 0)** against a clean baseline of 4 active approved postings.
+
+### Round 5 Audit Remediations
+
+1. **QA5-01: Correlated Active Release Membership & Public Scope Isolation (P0):**
+   - Corrected `CanonicalPosting.active_approved` and `CanonicalPosting.unapproved_staging` scopes to require a correlated SQL `EXISTS` subquery verifying that at least one `ApprovedReleaseRevision` belongs to that specific posting's `SourceRevision`s through `SourceMention`s within the active release.
+   - Initialized all newly created `CanonicalPosting` instances with `approved_release_id: nil`, preventing new unapproved postings from inheriting prior publication approval when an existing `SourceRecord` is reused.
+   - Scoped `ApprovedReleaseManager.current_revision` corpus counting strictly to `CanonicalPosting.active_approved.count`, ensuring unapproved staging imports never mutate `corpus_revision` or leak staging canaries/excerpts.
+2. **QA5-02: Transaction-Safe BatchImporter Counters & Invariant Preservation (P1):**
+   - Refactored `BatchImporter#import_batch` to track outcome in an item-local variable (`item_outcome`) evaluated within the database subtransaction. Aggregate counters (`inserted`, `updated`, `unchanged`) are only applied upon successful commit.
+   - Rolled back items (e.g. `identity_conflict`, `origin_class_conflict`) immediately abort the subtransaction with zero orphan records and are accounted for strictly as exactly one `invalid` entry.
+   - Enforced the required total accounting invariant: `total_input == inserted + updated + unchanged + invalid` across all success, partial, and failed import runs.
+3. **QA5-03: Tier 3 Platform Key Verification & Tenant Divergence Guard (P1):**
+   - Hardened `IdentityResolver#raw_tier3_candidates` and `IdentityResolver#find_tier3_candidates` to require a vetted platform key (`vetted_platform_key?`) from a recognized ATS domain (e.g., `greenhouse.io`, `lever.co`, `workday.com`), an operator-reviewed domain, or a trusted ingestion system.
+   - Added `tier3_incompatible?` check: identical employer and unvetted platform IDs with differing titles or non-overlapping locations are withheld from merging and recorded with uncertainty (`PotentialDuplicate` with reason `unverified_shared_job_id`).
+   - Merges verified ATS platform keys positively when job roles and locations match.
+4. **QA5-04: Operator-Reviewed Provenance Grants for Official Source Authority (P1):**
+   - Hardened `SourceAuthority.verified_official?` so that claiming an employer domain alone does not confer official authority. Domain matching is strictly an eligibility condition.
+   - Official authority requires an explicit operator-reviewed composite record grant (`[source_system, source_record_key]`) in `config/source_authority.yml` or active release-scoped revision membership.
+   - Prevents unverified third-party scrapers or malicious payloads from spoofing official authority by asserting claimed employer domains.
+5. **QA5-05: Non-Mutating Production Verification & Explicit Publish Manifests (P1):**
+   - Updated `bin/verify` to separate read-only qualification from fixture seeding. Added `--seed-demo` CLI flag and `DEMO_SEED_ALLOW` environment opt-in.
+   - Prohibited fixture seeding and test execution in `Rails.env.production?` (exits non-zero if `--seed-demo` is passed in production), ensuring zero mutation of production databases.
+   - Updated `bin/rails phantom:publish` to require explicit existing candidate batch and signed manifest file paths (`bin/rails phantom:publish[path/to/batch.json,path/to/manifest.json]`), rejecting implicit demo fixture defaults.
+6. **QA5-06: Historical Safe-Fields Integrity for Revision Digest Upgrades (P2):**
+   - Updated migration `UpgradeRevisionDigestsToV2` to reconstruct v2 digests using immutable historical `raw_safe_fields` rather than mutable current `SourceMention` and `SourceRecord` metadata.
+   - Deterministically reconciles mention/record discrepancies against the historical record, logs audit trails, and safely collapses duplicate v2 rows.
+   - Verified that replaying original source batches after migration registers as `unchanged: 1, inserted: 0`.
+

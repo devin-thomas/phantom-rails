@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "test_helper"
+require_relative "../../db/migrate/20261009150000_upgrade_revision_digests_to_v2"
 
 class QaAuditRemediationTest < ActionDispatch::IntegrationTest
   setup do
@@ -1916,11 +1917,13 @@ class QaAuditRemediationTest < ActionDispatch::IntegrationTest
     assert_includes publish_output, "Usage: bin/rails phantom:publish"
 
     # 2. In production mode, bin/verify --seed-demo exits nonzero
-    prod_seed_output = IO.popen([{"RAILS_ENV" => "production"}, "ruby", "bin/verify", "--seed-demo"], err: [:child, :out], &:read)
+    test_db = ActiveRecord::Base.connection_db_config.database
+    prod_env = { "RAILS_ENV" => "production", "POSTGRES_DB" => test_db }
+    prod_seed_output = IO.popen([prod_env, "ruby", "bin/verify", "--seed-demo"], err: [:child, :out], &:read)
     assert_includes prod_seed_output, "FAIL: Seeding demo fixtures is strictly prohibited in production environment"
 
     # 3. In production mode without --seed-demo, bin/verify is read-only and skips seeding/mutation
-    prod_verify_output = IO.popen([{"RAILS_ENV" => "production"}, "ruby", "bin/verify"], err: [:child, :out], &:read)
+    prod_verify_output = IO.popen([prod_env, "ruby", "bin/verify"], err: [:child, :out], &:read)
     assert_includes prod_verify_output, "SKIPPED (read-only verification in production)"
   end
 

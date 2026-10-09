@@ -123,6 +123,29 @@ class ProvenanceSerializerTest < ActiveSupport::TestCase
       snapshot_source_domain: "aggregator.com",
       snapshot_origin_class: "sanitized_historical"
     )
+
+    @mention_other = SourceMention.create!(
+      source_record: @record,
+      canonical_posting: @other_posting,
+      mention_key: "apex:req_102",
+      source_kind: "official_employer",
+      source_domain: "apextelecom.com",
+      job_id: "req_102"
+    )
+    @rev_other = SourceRevision.create!(
+      source_mention: @mention_other,
+      revision_digest: Digest::SHA256.hexdigest("rev_other"),
+      observed_at: Time.utc(2026, 9, 22, 10, 0, 0),
+      title: "Staff Infrastructure Engineer",
+      company: "Apex Telecom Inc",
+      location: "Dallas, TX"
+    )
+    ApprovedReleaseRevision.create!(
+      approved_release: @release,
+      source_revision: @rev_other,
+      snapshot_source_domain: "apextelecom.com",
+      snapshot_origin_class: "sanitized_historical"
+    )
   end
 
   test "serializes chosen field value, alternative, source timestamp, and selection reason" do
