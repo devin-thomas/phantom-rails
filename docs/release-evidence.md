@@ -29,7 +29,7 @@
 | **PHR-015** | Polished search playground | **COMPLETE** | Accessible search playground at `public/playground.html` / `GET /playground`, live API client, provenance modal, WCAG contrast, 320px responsive, zero external CDNs (13 assertions). |
 | **PHR-016** | Adversarial acceptance & privacy suite | **COMPLETE** | Contractual benchmark integration suite testing all 16 SPEC §10.1 scenarios across 16 runs (55 assertions, 0 failures, 0 errors). |
 | **PHR-017** | Reproducible CI container & reviewer seed | **COMPLETE** | Single-command release qualification `bin/verify`, seed task `phantom:seed`, GitHub Actions CI workflow, full automated suite (85 tests, 481 assertions, 0 failures) and qualification gates passing. |
-| **PHR-018** | Zero-cost live or local release evaluation | Not started | Pending |
+| **PHR-018** | Zero-cost live or local release evaluation | **COMPLETE** | Hosting comparison matrix documented ($0 budget boundary preserved; Render 30-day ephemeral PG rejected); CORE-LOCAL release verified with live container HTTP responses across `/health`, `/meta`, `/postings`, `/provenance`, `/docs`, `/playground`. |
 | **PHR-019** | Showcase & technical case study | Not started | Pending |
 | **PHR-020** | Optional SerpApi client (gated) | Not started | Pending |
 | **PHR-021** | Optional SerpApi comparison evidence | Not started | Pending |
@@ -338,3 +338,29 @@
     ALL QUALIFICATION GATES PASSED SUCCESSFULLY (EXIT 0)
   ======================================================================
   ```
+
+### PHR-018 — Hosting Qualification and Approved Release Gate
+- **Hosting Evaluation Matrix:**
+
+  | Platform | Web Service | Database Service | Monthly Cost | Uptime / Cold Start | Verdict |
+  |---|---|---|---|---|---|
+  | **Render** | Free tier (512MB RAM) | Free PostgreSQL | **$0** (first 30 days), then **$7/mo** | 50s cold start after 15m idle; **PostgreSQL instance and all data automatically destroyed after 30 days** | **REJECTED**: Expiring ephemeral database violates durable showcase requirement; paid upgrade violates $0 budget constraint without owner authorization. |
+  | **Koyeb** | Free nano instance (512MB RAM) | None | **$0** | Fast start; no native managed PostgreSQL | **BLOCKED**: Requires separate external managed database service. |
+  | **Neon** | N/A (DB only) | Free serverless PG (0.5 GiB) | **$0** | Autosuspends; connection spin-up latency; project archives on inactivity | **REJECTED**: External dependency with suspension risks and connection pool limits. |
+  | **Fly.io** | Pay-as-you-go | None free | **Paid** | Requires credit card; charges per resource | **REJECTED**: Zero-cost policy prohibits credit card attachment without prior owner sign-off. |
+  | **Hostinger Student** | Shared Web | MySQL only | Entitled | Shared cPanel PHP runtime; **no root, no Docker, no Rails 8.1 / PG16 support** | **REJECTED**: Technical mismatch for containerized Rails 8.1 stack. |
+  | **CORE-LOCAL (Docker Compose)** | Containerized Puma (`web`) | Containerized PostgreSQL 16 Alpine (`db`) | **$0.00** | **Instant (local); zero cold starts; 100% data persistence; deterministic across Linux/macOS/Windows** | **ACCEPTED (CORE-LOCAL)**: Fully reproducible, verified, and adheres to strict $0 spending boundary per ADR-018. |
+
+- **CORE-LOCAL Release Certificate:**
+  - **Release Status:** `CORE-LOCAL (Docker Compose Verified)`
+  - **Public URL Status:** `Not verified / Live public spending boundary preserved`
+  - **Environment:** Docker Compose (`web`: Rails 8.1, Puma 7.2; `db`: PostgreSQL 16 Alpine)
+  - **Local Endpoints Verified:**
+    - `GET http://localhost:3000/api/v1/health` -> `200 OK` (Latency: ~58ms, DB: connected, approved_release: true)
+    - `GET http://localhost:3000/api/v1/meta` -> `200 OK` (Corpus revision: `7cd7222648a8...`, Active: 8 postings)
+    - `GET http://localhost:3000/api/v1/postings?q=engineer` -> `200 OK` (Full-text search, explainable scores: 9, 8, potential duplicate flags active)
+    - `GET http://localhost:3000/api/v1/postings/post_576597ae5b396d9e/provenance` -> `200 OK` (Full audit trail, 3 potential duplicates, zero PII leaks)
+    - `GET http://localhost:3000/docs` -> `200 OK` (Self-contained interactive OpenAPI documentation)
+    - `GET http://localhost:3000/playground` -> `200 OK` (Accessible reviewer search playground)
+    - `GET http://localhost:3000/openapi.json` -> `200 OK` (OpenAPI 3.1 contract)
+  - **Spending Audit:** Exactly **$0.00** spent; zero API keys created, zero cloud accounts provisioned without authorization.

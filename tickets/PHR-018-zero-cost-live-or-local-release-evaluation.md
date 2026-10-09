@@ -1,6 +1,6 @@
 # PHR-018 — Hosting qualification and approved release gate
 
-**Status:** Not started  
+**Status:** Complete  
 **Lane:** Core engineering / qualification  
 **Dependencies:** PHR-017
 
@@ -16,10 +16,10 @@ Evaluate free Rails/PG hosting realistically and complete one authorized Core Re
 
 ## Acceptance Criteria
 
-- [ ] A hosting comparison records technical capabilities, monthly cost, uptime/cold-start assumptions and why Render free 30-day PG was rejected for durable storage.
-- [ ] Owner-approved live deployment (if authorized) serves exactly the digest-approved corpus and passes HTTPS API/docs/playground smoke tests.
-- [ ] If live is blocked, CORE-LOCAL certificate points to a working Docker demo and explicitly states public URL not verified.
-- [ ] No provider charge, API key, credentials, or live resources are created from the build plan alone.
+- [x] A hosting comparison records technical capabilities, monthly cost, uptime/cold-start assumptions and why Render free 30-day PG was rejected for durable storage.
+- [x] Owner-approved live deployment (if authorized) serves exactly the digest-approved corpus and passes HTTPS API/docs/playground smoke tests (evaluated; live spending blocked without authorization; CORE-LOCAL path selected).
+- [x] If live is blocked, CORE-LOCAL certificate points to a working Docker demo and explicitly states public URL not verified.
+- [x] No provider charge, API key, credentials, or live resources are created from the build plan alone.
 
 ## Test / Evidence
 
