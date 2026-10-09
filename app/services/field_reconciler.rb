@@ -17,10 +17,11 @@ class FieldReconciler
   end
 
   def reconcile!
-    revisions_scope = SourceRevision.joins(source_mention: :source_record)
-                                    .where(source_mentions: { canonical_posting_id: @posting.id })
-    if @posting.approved_release_id.present?
-      revisions_scope = revisions_scope.where(source_records: { approved_release_id: @posting.approved_release_id })
+    revisions_scope = if @posting.approved_release_id.present?
+      @posting.approved_revisions
+    else
+      SourceRevision.joins(source_mention: :source_record)
+                    .where(source_mentions: { canonical_posting_id: @posting.id })
     end
     revisions = revisions_scope.includes(source_mention: :source_record).to_a
 

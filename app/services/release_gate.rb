@@ -1,8 +1,15 @@
 require "digest"
 require "json"
+require "json_schemer"
 
 class ReleaseGate
+  SCHEMA_PATH = Rails.root.join("schemas", "public-release-v1.schema.json")
+
   Result = Struct.new(:approved, :candidate_digest, :manifest, :errors, keyword_init: true)
+
+  def self.schema
+    @schema ||= JSONSchemer.schema(SCHEMA_PATH)
+  end
 
   def self.compute_digest(raw_content)
     # Digest canonical UTF-8 bytes
@@ -24,6 +31,18 @@ class ReleaseGate
       manifest = JSON.parse(manifest_content.to_s)
     rescue JSON::ParserError => e
       return Result.new(approved: false, candidate_digest: computed_digest, manifest: nil, errors: ["Invalid manifest JSON: #{e.message}"])
+    end
+
+    unless manifest.is_a?(Hash)
+      return Result.new(approved: false, candidate_digest: computed_digest, manifest: nil, errors: ["Manifest must be a JSON object"])
+    end
+
+    # Schema validation against public-release-v1.schema.json
+    schema_errors = self.class.schema.validate(manifest).to_a
+    schema_errors.each do |err|
+      prop = err["data_pointer"]
+      type = err["type"]
+      errors << "Manifest schema violation at '#{prop}': failed constraint '#{type}'"
     end
 
     # Check manifest digest
@@ -50,6 +69,27 @@ class ReleaseGate
     if parsed_batch.invalid_items.any?
       inv_messages = parsed_batch.invalid_items.flat_map { |inv| inv[:errors].map { |e| "#{inv[:item_identifier]}: #{e[:message]}" } }
       errors << "Candidate batch contains #{parsed_batch.invalid_items.size} invalid items; release candidate must be 100% valid: #{inv_messages.join('; ')}"
+    end
+
+    # 3. Cross-validate manifest total_items and origin_class_counts against parsed candidate items
+    if manifest["total_items"].is_a?(Integer) && manifest["total_items"] != parsed_batch.valid_items.size
+      errors << "Manifest total_items count (#{manifest['total_items']}) does not match candidate batch items count (#{parsed_batch.valid_items.size})"
+    end
+
+    if manifest["origin_class_counts"].is_a?(Hash)
+      actual_hist = parsed_batch.valid_items.count { |i| i["origin_class"] == "sanitized_historical" }
+      actual_synth = parsed_batch.valid_items.count { |i| i["origin_class"] == "adversarial_synthetic" }
+
+      manifest_synth = manifest.dig("origin_class_counts", "adversarial_synthetic").to_i
+      manifest_hist = manifest.dig("origin_class_counts", "sanitized_historical").to_i
+
+      if manifest_synth != actual_synth
+        errors << "Manifest adversarial_synthetic count (#{manifest_synth}) does not match candidate count (#{actual_synth})"
+      end
+
+      if manifest_hist != actual_hist
+        errors << "Manifest sanitized_historical count (#{manifest_hist}) does not match candidate count (#{actual_hist})"
+      end
     end
 
     scan_result = PrivacyScanner.scan_batch(parsed_batch.valid_items)

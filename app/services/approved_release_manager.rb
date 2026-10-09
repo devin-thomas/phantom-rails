@@ -44,7 +44,8 @@ class ApprovedReleaseManager
         approved_by: manifest["approved_by"],
         approved_at: Time.iso8601(manifest["approved_at"]),
         corpus_version: manifest["corpus_version"],
-        total_items: manifest["total_items"]
+        total_items: manifest["total_items"],
+        origin_class_counts: manifest["origin_class_counts"] || {}
       )
       release.save!
 
@@ -55,16 +56,35 @@ class ApprovedReleaseManager
                     .update_all(approved_release_id: release.id)
       end
 
-      # Associate CanonicalPostings with the release
-      posting_ids = CanonicalPosting.joins(source_mentions: :source_record)
-                                     .where(source_records: { approved_release_id: release.id })
+      # Explicitly bind approved release to exact SourceRevisions and record snapshot metadata
+      parsed_batch = SourceBatchParser.parse_string(batch_content)
+      parsed_batch.valid_items.each do |item|
+        rec = SourceRecord.find_by(source_system: item["source_system"], source_record_key: item["source_record_key"])
+        next unless rec
+
+        mention = rec.source_mentions.find_by(mention_key: item["mention_key"])
+        next unless mention
+
+        digest = SourceRevision.compute_digest(item)
+        rev = mention.source_revisions.find_by(revision_digest: digest)
+        next unless rev
+
+        app_rev = release.approved_release_revisions.find_or_initialize_by(source_revision_id: rev.id)
+        app_rev.snapshot_source_domain = item["source_domain"]
+        app_rev.snapshot_job_id = item["job_id"]
+        app_rev.save!
+      end
+
+      # Associate CanonicalPostings containing the approved revisions with the release
+      posting_ids = CanonicalPosting.joins(source_mentions: { source_revisions: :approved_release_revisions })
+                                     .where(approved_release_revisions: { approved_release_id: release.id })
                                      .distinct
                                      .pluck(:id)
 
       CanonicalPosting.where(id: posting_ids).update_all(approved_release_id: release.id)
       postings = CanonicalPosting.where(id: posting_ids)
 
-      # Reconcile fields for all associated postings
+      # Reconcile fields for all associated postings using approved revisions
       postings.find_each do |p|
         FieldReconciler.reconcile!(p)
       end

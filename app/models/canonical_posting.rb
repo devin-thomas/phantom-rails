@@ -22,6 +22,18 @@ class CanonicalPosting < ApplicationRecord
   validates :last_observed_at, presence: true
   validates :first_observed_at, presence: true
 
+  def approved_revisions
+    return source_revisions unless approved_release_id.present?
+
+    if approved_release&.approved_release_revisions&.exists?
+      source_revisions.joins(:approved_release_revisions)
+                      .where(approved_release_revisions: { approved_release_id: approved_release_id })
+    else
+      source_revisions.joins(source_mention: :source_record)
+                      .where(source_records: { approved_release_id: approved_release_id })
+    end
+  end
+
   def potential_duplicates
     ids = potential_duplicates_as_a.pluck(:posting_b_id) + potential_duplicates_as_b.pluck(:posting_a_id)
     CanonicalPosting.where(id: ids.uniq)

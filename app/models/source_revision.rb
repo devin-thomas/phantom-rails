@@ -1,6 +1,8 @@
 class SourceRevision < ApplicationRecord
   belongs_to :source_mention
   has_many :field_selections, dependent: :destroy
+  has_many :approved_release_revisions, dependent: :destroy
+  has_many :approved_releases, through: :approved_release_revisions
 
   validates :revision_digest, presence: true, uniqueness: { scope: :source_mention_id }
   validates :observed_at, presence: true

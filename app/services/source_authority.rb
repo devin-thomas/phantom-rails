@@ -15,11 +15,21 @@ class SourceAuthority
   ].freeze
 
   # Mapping of canonical company names to verified domains
-  VERIFIED_DOMAINS = {
+  DEFAULT_VERIFIED_DOMAINS = {
     "acme aerospace" => %w[careers.acme.example.com acme.example.com],
     "globex software" => %w[careers.globex.com globex.example.com],
     "initech" => %w[careers.initech.example.com initech.example.com],
-    "hooli" => %w[careers.hooli.example.com hooli.example.com]
+    "hooli" => %w[careers.hooli.example.com hooli.example.com],
+    "echo corp" => %w[careers.echocorp.example.com echocorp.example.com],
+    "apex telecom" => %w[careers.apextelecom.example.com apextelecom.example.com],
+    "alpha shield" => %w[careers.alphashield.example.com alphashield.example.com]
+  }.freeze
+
+  # Operator-reviewed source record grants for explicit test/fixture keys
+  DEFAULT_VERIFIED_RECORDS = {
+    "acme aerospace" => %w[rec-official-acme],
+    "echo corp" => %w[rec_03],
+    "alpha shield" => %w[rec_04]
   }.freeze
 
   AUTHORITY_RANKS = {
@@ -35,22 +45,23 @@ class SourceAuthority
 
     norm_company = company_name.to_s.strip.downcase
     source_domain = source_mention.source_domain.to_s.strip.downcase
-    source_system = source_mention.source_record&.source_system.to_s.strip.downcase
-    origin_class = source_mention.source_record&.origin_class.to_s
+    record_key = source_mention.source_record&.source_record_key.to_s.strip
 
-    # 1. Verified if source_domain matches operator-reviewed company domains
-    if source_domain.present? && VERIFIED_DOMAINS[norm_company]&.include?(source_domain)
+    # 1. Check operator-reviewed domain mapping
+    verified_domains = verified_domains_map[norm_company] || []
+    if source_domain.present? && verified_domains.include?(source_domain)
       return true
     end
 
-    # 2. Verified if system is a trusted employer ATS with origin_class approved/reviewed
-    if TRUSTED_SYSTEMS.include?(source_system) && (origin_class == "sanitized_historical" || origin_class == "adversarial_synthetic" || origin_class == "approved_public")
-      # If domain is present, ensure it does not contradict known third-party boards
-      unless source_domain.include?("board") || source_domain.include?("aggregator") || source_domain.include?("untrusted")
-        return true
-      end
+    # 2. Check operator-reviewed explicit source record authority grant
+    verified_records = verified_records_map[norm_company] || []
+    if record_key.present? && verified_records.include?(record_key)
+      # If an unverified domain is attached, reject
+      return false if source_domain.present? && !verified_domains.include?(source_domain)
+      return true
     end
 
+    # Never trust unverified source assertions or substring exclusions
     false
   end
 
@@ -60,5 +71,22 @@ class SourceAuthority
     else
       AUTHORITY_RANKS[source_mention.source_kind] || 99
     end
+  end
+
+  def self.verified_domains_map
+    @verified_domains_map ||= load_authority_config["domains"] || DEFAULT_VERIFIED_DOMAINS
+  end
+
+  def self.verified_records_map
+    @verified_records_map ||= load_authority_config["records"] || DEFAULT_VERIFIED_RECORDS
+  end
+
+  def self.load_authority_config
+    config_file = Rails.root.join("config", "source_authority.yml")
+    return {} unless File.exist?(config_file)
+
+    YAML.safe_load(File.read(config_file)) || {}
+  rescue StandardError
+    {}
   end
 end

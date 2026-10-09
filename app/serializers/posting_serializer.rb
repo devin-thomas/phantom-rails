@@ -1,6 +1,12 @@
 class PostingSerializer
   def self.render_one(posting, score: nil)
-    origin_class = posting.source_mentions.first&.source_record&.origin_class || "adversarial_synthetic"
+    origin_class = if posting.approved_release_id.present?
+      posting.approved_revisions.first&.source_mention&.source_record&.origin_class ||
+        posting.source_mentions.first&.source_record&.origin_class ||
+        "adversarial_synthetic"
+    else
+      posting.source_mentions.first&.source_record&.origin_class || "adversarial_synthetic"
+    end
 
     {
       "id" => posting.public_id,

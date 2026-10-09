@@ -14,10 +14,10 @@ class PotentialDuplicate < ApplicationRecord
     return if posting_1.id == posting_2.id
 
     a_id, b_id = [posting_1.id, posting_2.id].sort
-    find_or_create_by!(posting_a_id: a_id, posting_b_id: b_id) do |record|
-      record.reason_code = reason_code
-      record.evaluation_digest = evaluation_digest
-    end
+    rec = find_or_initialize_by(posting_a_id: a_id, posting_b_id: b_id)
+    rec.reason_code = reason_code
+    rec.evaluation_digest = evaluation_digest
+    rec.save!
   end
 
   private

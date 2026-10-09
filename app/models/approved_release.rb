@@ -1,6 +1,8 @@
 class ApprovedRelease < ApplicationRecord
   has_many :canonical_postings, dependent: :nullify
   has_many :source_records, dependent: :nullify
+  has_many :approved_release_revisions, dependent: :destroy
+  has_many :source_revisions, through: :approved_release_revisions
 
   scope :active, -> { where(active: true) }
 

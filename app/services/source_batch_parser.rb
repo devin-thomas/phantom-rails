@@ -152,7 +152,7 @@ class SourceBatchParser
       item_data = raw_item.is_a?(Hash) ? raw_item.except(*envelope_keys) : raw_item
       item_errors = validate_item(item_data, item_schema)
       if item_errors.empty?
-        valid_items << normalize_item(item_data, batch_raw["origin_class"])
+        valid_items << normalize_item(item_data, batch_raw["origin_class"]).merge("_batch_index" => idx)
       else
         invalid_items << {
           index: idx,

@@ -94,7 +94,7 @@ class BatchImporter
           # Ambiguous revision order in unordered batch: quarantine all items for this key
           items_for_key.each_with_index do |item, offset|
             invalid_errors << {
-              item_index: parsed.valid_items.index(item),
+              item_index: item["_batch_index"] || parsed.valid_items.index(item),
               item_identifier: "#{item['source_record_key']}/#{item['mention_key']}",
               error_code: "ambiguous_revision_order",
               error_message: "Conflicting revisions for same mention key within single unordered batch"
@@ -142,8 +142,10 @@ class BatchImporter
           m.job_id = item["job_id"]
         end
 
-        # Update metadata if newer
-        mention.update!(source_domain: item["source_domain"], job_id: item["job_id"]) if item["job_id"].present?
+        # Update metadata if newer and not part of an approved posting
+        unless mention.canonical_posting&.approved_release_id.present?
+          mention.update!(source_domain: item["source_domain"], job_id: item["job_id"]) if item["job_id"].present?
+        end
 
         rev_digest = SourceRevision.compute_digest(item)
         existing_rev = mention.source_revisions.find_by(revision_digest: rev_digest)
@@ -182,9 +184,11 @@ class BatchImporter
         end
       end
     rescue StandardError => e
+      idx = raw_item["_batch_index"] || -1
+      ident = item ? "#{item['source_record_key']}/#{item['mention_key']}" : "#{raw_item['source_record_key']}/#{raw_item['mention_key']}"
       invalid_errors << {
-        item_index: -1,
-        item_identifier: "#{item['source_record_key']}/#{item['mention_key']}",
+        item_index: idx,
+        item_identifier: ident,
         error_code: "item_persistence_error",
         error_message: e.message
       }

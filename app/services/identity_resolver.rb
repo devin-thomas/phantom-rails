@@ -157,7 +157,11 @@ class IdentityResolver
                                .compact
                                .uniq
 
-    candidates.select { |p| scope.where(id: p.id).exists? && !has_conflicting_identifiers?(mention, rev, p) }
+    candidates.select do |p|
+      scope.where(id: p.id).exists? &&
+        !has_conflicting_identifiers?(mention, rev, p) &&
+        tier2_compatible_titles_or_requisition?(mention, rev, p)
+    end
   end
 
   # Tier 3 (strong, source-scoped): Same stable platform posting ID on same vetted platform + same employer
@@ -212,21 +216,68 @@ class IdentityResolver
     false
   end
 
+  def tier2_compatible_titles_or_requisition?(mention, rev, candidate_posting)
+    cand_job_ids = candidate_posting.source_mentions.pluck(:job_id).compact.map(&:strip).reject(&:empty?).uniq
+    # If they share an explicit verified job requisition ID, titles may vary (e.g. level prefix)
+    if mention.job_id.present? && cand_job_ids.include?(mention.job_id.strip)
+      return true
+    end
+
+    # Without a shared explicit requisition ID, titles MUST match
+    norm_rev_title = normalize_title_for_comparison(rev.title)
+    norm_cand_title = normalize_title_for_comparison(candidate_posting.title)
+
+    norm_rev_title == norm_cand_title
+  end
+
+  def normalize_title_for_comparison(title)
+    title.to_s.strip.downcase.gsub(/[^a-z0-9]/, " ").squeeze(" ")
+  end
+
   def specific_job_url?(url)
     return false unless url.present?
     uri = URI.parse(url)
-    path = uri.path.to_s.sub(/\/$/, "")
+    path = uri.path.to_s.sub(/\/$/, "").downcase
     return false if path.blank?
-    !%w[/ /jobs /careers /search /openings].include?(path.downcase)
+
+    generic_prefixes = %w[
+      / /jobs /careers /search /openings /positions /work-with-us /join-us /all-jobs
+      /openings/all /careers/all /jobs/all /positions/all
+      /openings/list /careers/list /jobs/list /positions/list
+      /engineering/careers /tech/careers
+    ]
+    return false if generic_prefixes.include?(path)
+    return false if path.end_with?("/all") || path.end_with?("/list")
+
+    true
   rescue URI::InvalidURIError
     false
   end
 
-  # Tier 4 (uncertain): Similar company & title without strong ID -> Record Potential Duplicate
   def check_and_record_potential_duplicates(posting)
+    posting.reload if posting.persisted?
     norm_company = posting.company.strip.downcase
     norm_title = posting.title.strip.downcase
 
+    # Check 1: Same company & shared job_url but differing titles (prevented Tier 2 merge)
+    posting_urls = posting.source_revisions.pluck(:job_url).compact.map { |u| Sanitizer.clean_url(u) }.reject(&:blank?).uniq
+    if posting_urls.any?
+      url_postings = CanonicalPosting.joins(source_mentions: :source_revisions)
+                                     .where.not(id: posting.id)
+                                     .where("LOWER(canonical_postings.company) = ?", norm_company)
+                                     .where(source_revisions: { job_url: posting_urls })
+                                     .distinct
+      url_postings.find_each do |other|
+        PotentialDuplicate.record_pair!(
+          posting,
+          other,
+          reason_code: "shared_url_differing_titles",
+          evaluation_digest: "tier4-shared-url-divergent"
+        )
+      end
+    end
+
+    # Check 2: Similar company & title/location without strong ID
     similar_postings = CanonicalPosting.where.not(id: posting.id)
                                        .where("LOWER(company) = ?", norm_company)
                                        .where("LOWER(title) = ? OR LOWER(location) = ?", norm_title, posting.location.strip.downcase)
@@ -235,12 +286,16 @@ class IdentityResolver
       # Verify they don't share a strong key
       shared_job_ids = (posting.source_mentions.pluck(:job_id) & other.source_mentions.pluck(:job_id)).compact.reject(&:empty?)
       if shared_job_ids.empty?
-        PotentialDuplicate.record_pair!(
-          posting,
-          other,
-          reason_code: "similar_company_title_location",
-          evaluation_digest: "tier4-uncertain-match"
-        )
+        a_id, b_id = [posting.id, other.id].sort
+        existing = PotentialDuplicate.find_by(posting_a_id: a_id, posting_b_id: b_id)
+        unless existing&.reason_code == "shared_url_differing_titles"
+          PotentialDuplicate.record_pair!(
+            posting,
+            other,
+            reason_code: "similar_company_title_location",
+            evaluation_digest: "tier4-uncertain-match"
+          )
+        end
       end
     end
   end

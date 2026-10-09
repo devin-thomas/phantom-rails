@@ -436,4 +436,320 @@ class QaAuditRemediationTest < ActionDispatch::IntegrationTest
     assert_equal 2, report.inserted_count
     assert_equal 1, report.unchanged_count # Collapsed in-batch duplicate counted as unchanged
   end
+
+  # ==========================================================================
+  # QA Round 2 Audit Remediation Tests
+  # ==========================================================================
+
+  test "QA Round 2: P0 reproduction - unapproved staging revision leaves approved public posting and provenance completely invariant" do
+    # 1. Publish one approved source
+    approved_batch = {
+      "batch_schema_version" => "1.0",
+      "batch_id" => "approved-p0-v1",
+      "origin_class" => "sanitized_historical",
+      "items" => [
+        {
+          "source_record_key" => "rec-approved-p0",
+          "mention_key" => "m1",
+          "source_system" => "reviewed_export",
+          "observed_at" => "2026-09-20T10:00:00Z",
+          "source_kind" => "official_employer",
+          "source_domain" => "careers.acme.example.com",
+          "job_id" => "REQ-P0",
+          "title" => "Staff Systems Engineer",
+          "company" => "Acme Aerospace",
+          "location" => "Denver, CO",
+          "salary" => { "min": 175000, "max": 215000, "currency": "USD", "period": "year" },
+          "summary_excerpt" => "Approved public description of systems role",
+          "job_url" => "https://careers.acme.example.com/jobs/req-p0"
+        }
+      ]
+    }
+    batch_json = JSON.generate(approved_batch)
+    manifest = ReleaseGate.build_manifest(batch_json, approved_by: "auditor-p0", corpus_version: "2026.10.1")
+    manifest_json = JSON.generate(manifest)
+
+    pub_res = ApprovedReleaseManager.new.publish!(batch_json, manifest_json)
+    assert pub_res.success, "Release publication must succeed: #{pub_res.errors}"
+    assert_equal 1, pub_res.postings_count
+
+    posting = CanonicalPosting.active_approved.first
+    assert_not_nil posting
+
+    # Fetch baseline public posting, provenance, and metadata responses
+    get "/api/v1/postings/#{posting.public_id}"
+    assert_response :success
+    baseline_posting_json = JSON.parse(response.body)
+
+    get "/api/v1/postings/#{posting.public_id}/provenance"
+    assert_response :success
+    baseline_provenance_json = JSON.parse(response.body)
+
+    get "/api/v1/meta"
+    assert_response :success
+    baseline_meta_json = JSON.parse(response.body)
+
+    baseline_corpus_revision = ApprovedReleaseManager.current_revision
+
+    # 2. Ingest staging-only subsequent revision for the SAME stable source identity
+    # Contains changed title, changed domain, changed job_id, and summary_excerpt with private canary email
+    staging_batch = {
+      "batch_schema_version" => "1.0",
+      "batch_id" => "staging-unapproved-p0",
+      "origin_class" => "adversarial_synthetic",
+      "items" => [
+        {
+          "source_record_key" => "rec-approved-p0",
+          "mention_key" => "m1",
+          "source_system" => "reviewed_export",
+          "observed_at" => "2026-09-25T14:00:00Z", # newer unapproved observation
+          "source_kind" => "official_employer",
+          "source_domain" => "leaked.example.com", # changed domain
+          "job_id" => "REQ-LEAKED-999", # changed job_id
+          "title" => "UNAPPROVED PRIVATE TITLE",
+          "company" => "Acme Aerospace",
+          "location" => "Denver, CO",
+          "salary" => { "min": 999999, "max": 999999, "currency": "USD", "period": "year" },
+          "summary_excerpt" => "Confidential: reach out to private-person@example.com for private candidate details",
+          "job_url" => "https://leaked.example.com/jobs/999"
+        }
+      ]
+    }
+    staging_report = BatchImporter.import_string(JSON.generate(staging_batch))
+    assert_equal "complete", staging_report.status
+    assert_equal 1, staging_report.updated_count
+
+    # 3. Assert public projection, provenance, metadata, and corpus revision remain byte/semantically invariant
+    get "/api/v1/postings/#{posting.public_id}"
+    assert_response :success
+    after_posting_json = JSON.parse(response.body)
+    assert_equal baseline_posting_json, after_posting_json, "Public posting projection must remain strictly invariant after staging import"
+
+    get "/api/v1/postings/#{posting.public_id}/provenance"
+    assert_response :success
+    after_provenance_json = JSON.parse(response.body)
+    after_provenance_body = response.body
+    assert_equal baseline_provenance_json, after_provenance_json, "Public provenance must remain strictly invariant after staging import"
+
+    get "/api/v1/meta"
+    assert_response :success
+    after_meta_json = JSON.parse(response.body)
+    assert_equal baseline_meta_json, after_meta_json, "Public meta response must remain strictly invariant after staging import"
+
+    # Strict privacy canary assertions: ZERO leaks of private email or unapproved domain/title
+    refute_includes after_provenance_body, "private-person@example.com", "Private canary email must NEVER appear in public provenance"
+    refute_includes after_provenance_body, "leaked.example.com", "Unapproved staging domain must not leak into approved provenance"
+    refute_includes after_provenance_body, "UNAPPROVED PRIVATE TITLE", "Unapproved staging title must not leak into approved provenance"
+
+    # Provenance source counts and metadata must reflect ONLY approved revisions
+    mentions_data = after_provenance_json["data"]["source_mentions"]
+    assert_equal 1, mentions_data.size
+    assert_equal 1, mentions_data.first["revisions_count"], "revisions_count in approved provenance must NOT count unapproved revisions"
+    assert_equal "careers.acme.example.com", mentions_data.first["source_domain"]
+
+    # Corpus revision must not change
+    assert_equal baseline_corpus_revision, ApprovedReleaseManager.current_revision
+  end
+
+  test "QA Round 2: P1 authority spoofing - unverified domain claiming official_employer cannot override newer third party observation" do
+    batch = {
+      "batch_schema_version" => "1.0",
+      "batch_id" => "spoof-authority-batch",
+      "origin_class" => "adversarial_synthetic",
+      "items" => [
+        {
+          "source_record_key" => "rec-evil-official",
+          "mention_key" => "m1",
+          "source_system" => "ats",
+          "observed_at" => "2026-09-20T10:00:00Z", # older
+          "source_kind" => "official_employer",
+          "source_domain" => "evil.example", # unverified domain!
+          "job_id" => "REQ-SPOOF",
+          "title" => "Lead Systems Engineer",
+          "company" => "Globex Software",
+          "location" => "Austin, TX",
+          "salary" => { "min": 999999, "max": 999999, "currency": "USD", "period": "year" }
+        },
+        {
+          "source_record_key" => "rec-board-genuine",
+          "mention_key" => "m1",
+          "source_system" => "aggregator",
+          "observed_at" => "2026-09-25T10:00:00Z", # newer observation
+          "source_kind" => "third_party_board",
+          "source_domain" => "board.example",
+          "job_id" => "REQ-SPOOF",
+          "title" => "Lead Systems Engineer",
+          "company" => "Globex Software",
+          "location" => "Austin, TX",
+          "salary" => { "min": 140000, "max": 170000, "currency": "USD", "period": "year" }
+        }
+      ]
+    }
+
+    report = BatchImporter.import_string(JSON.generate(batch))
+    assert_equal "complete", report.status
+
+    posting = CanonicalPosting.find_by(company: "Globex Software")
+    assert_not_nil posting
+
+    # Assert: evil.example was NOT granted verified official authority
+    # The newer credible observation must win!
+    assert_equal 140000.0, posting.salary_min.to_f
+    assert_equal 170000.0, posting.salary_max.to_f
+
+    selection = posting.field_selections.find_by(field_name: "salary")
+    assert_not_equal "verified_official_override", selection.selection_reason
+  end
+
+  test "QA Round 2: P1 generic careers URL auto-merge guard - distinct jobs sharing generic openings URL remain separate" do
+    batch = {
+      "batch_schema_version" => "1.0",
+      "batch_id" => "generic-url-batch",
+      "origin_class" => "adversarial_synthetic",
+      "items" => [
+        {
+          "source_record_key" => "rec-backend-role",
+          "mention_key" => "m1",
+          "source_system" => "board_1",
+          "observed_at" => "2026-09-20T10:00:00Z",
+          "source_kind" => "third_party_board",
+          "title" => "Staff Backend Engineer",
+          "company" => "Acme Aerospace",
+          "location" => "Denver, CO",
+          "job_url" => "https://careers.acme.example.com/openings/all"
+        },
+        {
+          "source_record_key" => "rec-designer-role",
+          "mention_key" => "m1",
+          "source_system" => "board_2",
+          "observed_at" => "2026-09-20T10:00:00Z",
+          "source_kind" => "third_party_board",
+          "title" => "Senior Product Designer",
+          "company" => "Acme Aerospace",
+          "location" => "Denver, CO",
+          "job_url" => "https://careers.acme.example.com/openings/all"
+        }
+      ]
+    }
+
+    report = BatchImporter.import_string(JSON.generate(batch))
+    assert_equal "complete", report.status
+
+    postings = CanonicalPosting.where(company: "Acme Aerospace")
+    assert_equal 2, postings.count, "Distinct job titles sharing a generic openings URL must NEVER auto-merge"
+
+    # PotentialDuplicate record must be established
+    dupes = PotentialDuplicate.where(posting_a: postings).or(PotentialDuplicate.where(posting_b: postings))
+    assert dupes.exists?, "Potential duplicate must be recorded for postings sharing a generic URL"
+    assert dupes.any? { |d| d.reason_code == "shared_url_differing_titles" }
+  end
+
+  test "QA Round 2: P1 release manifest schema validation and cross-validation against candidate items" do
+    valid_candidate = {
+      "batch_schema_version" => "1.0",
+      "batch_id" => "gate-validation-batch",
+      "origin_class" => "adversarial_synthetic",
+      "items" => [
+        {
+          "source_record_key" => "rec-gate-1",
+          "mention_key" => "m1",
+          "source_system" => "ats",
+          "observed_at" => "2026-09-20T10:00:00Z",
+          "source_kind" => "official_employer",
+          "title" => "Security Engineer",
+          "company" => "Acme Aerospace",
+          "location" => "Denver, CO"
+        }
+      ]
+    }
+    cand_json = JSON.generate(valid_candidate)
+    correct_manifest = ReleaseGate.build_manifest(cand_json, approved_by: "qa-auditor", corpus_version: "2026.10.1")
+
+    # 1. Invalid schema version
+    bad_schema_manifest = correct_manifest.merge("manifest_version" => "2.0")
+    gate_res1 = ReleaseGate.evaluate(cand_json, JSON.generate(bad_schema_manifest))
+    assert_equal false, gate_res1.approved
+    assert gate_res1.errors.any? { |e| e.include?("Manifest schema violation") }
+
+    # 2. Tampered total_items
+    bad_count_manifest = correct_manifest.merge("total_items" => 999)
+    bad_count_manifest["approval_signature"] = ReleaseGate.compute_digest(cand_json)
+    gate_res2 = ReleaseGate.evaluate(cand_json, JSON.generate(bad_count_manifest))
+    assert_equal false, gate_res2.approved
+    assert gate_res2.errors.any? { |e| e.include?("total_items count (999) does not match") }
+
+    # 3. Tampered origin_class_counts
+    bad_origin_manifest = correct_manifest.merge("origin_class_counts" => { "adversarial_synthetic" => 0, "sanitized_historical" => 1 })
+    gate_res3 = ReleaseGate.evaluate(cand_json, JSON.generate(bad_origin_manifest))
+    assert_equal false, gate_res3.approved
+    assert gate_res3.errors.any? { |e| e.include?("adversarial_synthetic count") }
+  end
+
+  test "QA Round 2: P2 persistence failure accounting retains exact batch item indices" do
+    batch = {
+      "batch_schema_version" => "1.0",
+      "batch_id" => "persistence-accounting-batch",
+      "origin_class" => "adversarial_synthetic",
+      "items" => [
+        {
+          "source_record_key" => "rec-acc-0",
+          "mention_key" => "m1",
+          "source_system" => "ats",
+          "observed_at" => "2026-09-20T10:00:00Z",
+          "source_kind" => "third_party_board",
+          "title" => "Title 0",
+          "company" => "Corp A",
+          "location" => "Remote"
+        },
+        {
+          "source_record_key" => "rec-acc-1",
+          "mention_key" => "m1",
+          "source_system" => "ats",
+          "observed_at" => "2026-09-20T10:00:00Z",
+          "source_kind" => "third_party_board",
+          "title" => "Title 1",
+          "company" => "Corp B",
+          "location" => "Remote"
+        },
+        {
+          "source_record_key" => "rec-acc-2",
+          "mention_key" => "m1",
+          "source_system" => "ats",
+          "observed_at" => "2026-09-20T10:00:00Z",
+          "source_kind" => "third_party_board",
+          "title" => "Title 2",
+          "company" => "Corp C",
+          "location" => "Remote"
+        }
+      ]
+    }
+
+    # Inject failure on item with index 1
+    original_sanitize = Sanitizer.method(:sanitize_item)
+    Sanitizer.define_singleton_method(:sanitize_item) do |raw_item|
+      if raw_item["source_record_key"] == "rec-acc-1"
+        raise StandardError, "Injected database persistence failure on rec-acc-1"
+      end
+      original_sanitize.call(raw_item)
+    end
+
+    begin
+      report = BatchImporter.import_string(JSON.generate(batch))
+      assert_equal "partial", report.status
+      assert_equal 3, report.total_input
+      assert_equal 2, report.inserted_count
+      assert_equal 1, report.invalid_count
+
+      # Verify exact item index was preserved, not -1
+      err = report.errors.find { |e| e[:error_code] == "item_persistence_error" }
+      assert_not_nil err
+      assert_equal 1, err[:item_index], "Item index must match the exact batch index (1), never collapsed to -1"
+
+      # Accounting invariant holds
+      sum = report.inserted_count + report.updated_count + report.unchanged_count + report.invalid_count
+      assert_equal report.total_input, sum
+    ensure
+      Sanitizer.define_singleton_method(:sanitize_item, original_sanitize)
+    end
+  end
 end

@@ -19,13 +19,17 @@ module Api
 
       def origin_counts(release)
         return { "adversarial_synthetic" => 0 } unless release
+        return release.origin_class_counts if release.origin_class_counts.present? && release.origin_class_counts.any?
 
         counts = {}
-        CanonicalPosting.active_approved
-                        .joins(source_mentions: :source_record)
-                        .group("source_records.origin_class")
-                        .count
-                        .each do |k, v|
+        scope = CanonicalPosting.active_approved.joins(source_mentions: :source_record)
+        if release.approved_release_revisions.exists?
+          scope = scope.joins(source_mentions: { source_revisions: :approved_release_revisions })
+                       .where(approved_release_revisions: { approved_release_id: release.id })
+        end
+        scope.group("source_records.origin_class")
+             .count
+             .each do |k, v|
           counts[k] = v
         end
         counts.presence || { "adversarial_synthetic" => release.total_items }

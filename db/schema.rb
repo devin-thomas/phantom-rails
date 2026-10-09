@@ -10,9 +10,21 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_09_120000) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_09_130100) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
+
+  create_table "approved_release_revisions", force: :cascade do |t|
+    t.bigint "approved_release_id", null: false
+    t.bigint "source_revision_id", null: false
+    t.string "snapshot_source_domain"
+    t.string "snapshot_job_id"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["approved_release_id", "source_revision_id"], name: "idx_on_approved_release_and_revision_unique", unique: true
+    t.index ["approved_release_id"], name: "index_approved_release_revisions_on_approved_release_id"
+    t.index ["source_revision_id"], name: "index_approved_release_revisions_on_source_revision_id"
+  end
 
   create_table "approved_releases", force: :cascade do |t|
     t.string "manifest_digest", null: false
@@ -24,6 +36,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_09_120000) do
     t.boolean "active", default: false, null: false
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
+    t.jsonb "origin_class_counts", default: {}, null: false
     t.index ["active"], name: "index_approved_releases_on_active"
     t.index ["manifest_digest"], name: "index_approved_releases_on_manifest_digest", unique: true
   end
@@ -160,6 +173,8 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_09_120000) do
     t.index ["source_mention_id"], name: "index_source_revisions_on_source_mention_id"
   end
 
+  add_foreign_key "approved_release_revisions", "approved_releases", on_delete: :cascade
+  add_foreign_key "approved_release_revisions", "source_revisions", on_delete: :cascade
   add_foreign_key "canonical_postings", "approved_releases"
   add_foreign_key "field_selections", "canonical_postings", on_delete: :cascade
   add_foreign_key "field_selections", "source_revisions", on_delete: :cascade

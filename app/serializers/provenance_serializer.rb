@@ -8,7 +8,11 @@ class ProvenanceSerializer
   end
 
   def as_json
-    origin_class = @posting.source_mentions.first&.source_record&.origin_class || "adversarial_synthetic"
+    origin_class = if @posting.approved_release_id.present?
+      @posting.approved_revisions.first&.source_mention&.source_record&.origin_class || "adversarial_synthetic"
+    else
+      @posting.source_mentions.first&.source_record&.origin_class || "adversarial_synthetic"
+    end
 
     {
       "id" => @posting.public_id,
@@ -46,18 +50,35 @@ class ProvenanceSerializer
   end
 
   def render_mentions
-    scope = @posting.source_mentions.joins(:source_record)
-    if @posting.approved_release_id.present?
-      scope = scope.where(source_records: { approved_release_id: @posting.approved_release_id })
-    end
-    scope.order(:id).map do |sm|
-      {
-        "mention_key" => sm.mention_key,
-        "source_kind" => sm.source_kind,
-        "source_domain" => sm.source_domain,
-        "origin_class" => sm.source_record&.origin_class,
-        "revisions_count" => sm.source_revisions.count
-      }
+    if @posting.approved_release_id.present? && @posting.approved_release&.approved_release_revisions&.exists?
+      app_revs = ApprovedReleaseRevision.where(
+        approved_release_id: @posting.approved_release_id,
+        source_revision_id: @posting.source_revisions.select(:id)
+      ).includes(source_revision: { source_mention: :source_record })
+
+      by_mention = app_revs.group_by { |ar| ar.source_revision.source_mention }
+      by_mention.keys.sort_by(&:id).map do |sm|
+        ar_list = by_mention[sm]
+        latest_ar = ar_list.max_by { |ar| [ar.source_revision.observed_at || Time.at(0), ar.source_revision.id] }
+        {
+          "mention_key" => sm.mention_key,
+          "source_kind" => sm.source_kind,
+          "source_domain" => latest_ar&.snapshot_source_domain.presence || sm.source_domain,
+          "origin_class" => sm.source_record&.origin_class,
+          "revisions_count" => ar_list.size
+        }
+      end
+    else
+      scope = @posting.source_mentions.joins(:source_record).order(:id)
+      scope.map do |sm|
+        {
+          "mention_key" => sm.mention_key,
+          "source_kind" => sm.source_kind,
+          "source_domain" => sm.source_domain,
+          "origin_class" => sm.source_record&.origin_class,
+          "revisions_count" => sm.source_revisions.count
+        }
+      end
     end
   end
 
@@ -68,11 +89,11 @@ class ProvenanceSerializer
     selections = @posting.field_selections.includes(source_revision: :source_mention).index_by(&:field_name)
 
     # All unique revisions for this posting within approved release scope
-    rev_scope = @posting.source_revisions.joins(source_mention: :source_record)
-    if @posting.approved_release_id.present?
-      rev_scope = rev_scope.where(source_records: { approved_release_id: @posting.approved_release_id })
+    all_revisions = if @posting.approved_release_id.present?
+      @posting.approved_revisions.includes(:source_mention).order(observed_at: :desc, id: :desc)
+    else
+      @posting.source_revisions.includes(:source_mention).order(observed_at: :desc, id: :desc)
     end
-    all_revisions = rev_scope.includes(:source_mention).order(observed_at: :desc, id: :desc)
 
     %w[title company location remote_type employment_type salary summary_excerpt job_url].each do |field|
       selection = selections[field]
