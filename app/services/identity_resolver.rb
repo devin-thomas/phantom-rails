@@ -254,7 +254,16 @@ class IdentityResolver
     return [] unless vetted_platform_key?(mention, rev)
 
     candidates.select do |p|
-      p.source_mentions.any? { |sm| vetted_platform_key?(sm, rev) } &&
+      # QA6-005: Independent source verification required; unreviewed third-party assertions cannot self-authorize merges
+      mention_verified = SourceAuthority.verified_official?(mention, rev.company) ||
+                         SourceAuthority::TRUSTED_SYSTEMS.include?(mention.source_record&.source_system.to_s.strip.downcase)
+      posting_verified = p.source_mentions.any? do |sm|
+        SourceAuthority.verified_official?(sm, p.company) ||
+        SourceAuthority::TRUSTED_SYSTEMS.include?(sm.source_record&.source_system.to_s.strip.downcase)
+      end
+
+      (mention_verified || posting_verified) &&
+        p.source_mentions.any? { |sm| vetted_platform_key?(sm, rev) } &&
         !tier3_incompatible?(rev, p) &&
         !has_conflicting_identifiers?(mention, rev, p)
     end

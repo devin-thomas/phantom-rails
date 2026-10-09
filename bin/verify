@@ -74,8 +74,21 @@ begin
     CanonicalPosting.active_approved.find_each do |p|
       serialized = PostingSerializer.render_one(p).to_json
       report = PrivacyScanner.scan_string(serialized)
-      raise "Privacy leak in posting #{p.public_id}: #{report.violations.inspect}" unless report.clean?
+      raise "Privacy leak in posting #{p.public_id}: #{report.violations.map { |v| v[:type] }.join(', ')}" unless report.clean?
+
+      prov_serialized = ProvenanceSerializer.render(p).to_json
+      prov_report = PrivacyScanner.scan_string(prov_serialized)
+      raise "Privacy leak in provenance for #{p.public_id}: #{prov_report.violations.map { |v| v[:type] }.join(', ')}" unless prov_report.clean?
     end
+
+    meta_json = {
+      service: "phantom-rails",
+      version: "1.0.0",
+      active_postings_count: CanonicalPosting.active_approved.count,
+      corpus_revision: ApprovedReleaseManager.current_revision
+    }.to_json
+    meta_report = PrivacyScanner.scan_string(meta_json)
+    raise "Privacy leak in meta response: #{meta_report.violations.map { |v| v[:type] }.join(', ')}" unless meta_report.clean?
   end
 
   step("Checking self-contained static assets (no external CDNs)") do

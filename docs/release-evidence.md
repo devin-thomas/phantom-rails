@@ -479,4 +479,28 @@ Following independent QA code audits, the following guarantees and protections w
    - Brakeman security scan: **0 unsuppressed security warnings, 3 ignored SQL warnings**.
    - Single-command qualification `bin/verify`: **ALL 7 GATES PASS (EXIT 0)**.
 
+### Round 6 Stop-Ship Audit & Remediation (October 9, 2026)
+
+Following independent QA Round 6 audit (`Phantom_Rails_QA_Round6_Stop_Ship.md`), a P0-class privacy boundary bypass was identified where entity-encoded PII passed pre-sanitization scanning and could appear in public output upon `CGI.unescapeHTML` decoding, along with diagnostic secret leaks, unverified Tier 3 merges, and migration parent mutation risks. The following emergency epic was implemented and verified:
+
+1. **QA6-001: Publication Quarantine & Deny-by-Default Gate (P0):**
+   - Enforced application-level deny-by-default publication gate in `ApprovedReleaseManager#publish!`: requires explicit runtime authorization `PHANTOM_PUBLISH_ALLOW=true` to publish releases in non-test environments.
+   - Refuses un-authorized publication attempts and returns a quarantined status error.
+2. **QA6-002: Canonical Safe-Output Pipeline & Dual Privacy Gate (P0):**
+   - Updated `Sanitizer.clean_text` to iteratively decode HTML entities (decimal, hex, named), strip zero-width characters and control codes, and strip HTML tags *after* entity decoding to eliminate bypasses like `&#60;script&#62;`.
+   - Updated `Sanitizer.clean_url` to decode percent-encoding in query parameters, reject sensitive parameter keys (e.g. `contact`, `email`, `user`), and drop parameters whose decoded values match email, canary, token, or SSN patterns.
+   - Updated `ReleaseGate` to perform dual-phase automated privacy scanning on both raw candidate items and sanitized projection items before approving candidates.
+3. **QA6-003: Pre-Activation Full Projection Privacy Gate & Regression Suite (P0):**
+   - In `ApprovedReleaseManager#publish!`, added mandatory pre-activation serialized scanning: renders and scans `PostingSerializer.render_one(p)` and `ProvenanceSerializer.render(p)` for all candidate postings prior to calling `release.activate!`. Fails closed and rolls back atomically on any leak.
+   - Added exhaustive regression tests covering HTML entities (`&#64;`, `&#x40;`, `&commat;`, `&#46;`), percent-encoded URLs, zero-width spaces, and encoded markup.
+4. **QA6-004: Error Diagnostic Secret Redaction (P1):**
+   - Updated `PrivacyScanner#redact_match` to return fixed opaque redaction tokens (`[REDACTED_SECRET]`, `[REDACTED_EMAIL]`, etc.) rather than unredacted matched secrets.
+   - Updated `ReleaseGate` error reporting to reference only `item_id`, field path, and violation type codes, guaranteeing zero sensitive values leak into operator or CI build logs.
+5. **QA6-005: Platform Key Verification & Parent Migration Immutability (P1):**
+   - Hardened `IdentityResolver#find_tier3_candidates` to require verified source authority or trusted system ingestion on at least one side. External unreviewed aggregators asserting ATS domains and generic IDs remain separate and are flagged as `PotentialDuplicate`.
+   - Removed all `sm.update_columns` and `sr.update_columns` mutations from `UpgradeRevisionDigestsToV2`, ensuring per-revision digest upgrades never mutate shared parent records or alter iteration-order metadata.
+6. **QA6-006: Comprehensive Verification Gate Expansion:**
+   - Expanded `bin/verify` active corpus privacy scanning to validate `PostingSerializer.render_one`, `ProvenanceSerializer.render`, and meta responses with opaque diagnostics.
+
+
 

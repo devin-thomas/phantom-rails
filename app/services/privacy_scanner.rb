@@ -41,6 +41,34 @@ class PrivacyScanner
     )
   end
 
+  def self.canonicalize_text(str)
+    return "" if str.nil?
+
+    cleaned = str.to_s
+    # 1. Strip zero-width spaces and control characters
+    cleaned = cleaned.gsub(/[\u200B-\u200D\uFEFF\u2060]/, "")
+    cleaned = cleaned.gsub(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/, "")
+
+    # 2. Iteratively decode HTML entities (up to 3 passes to handle nested encoding)
+    3.times do
+      prev = cleaned
+      cleaned = CGI.unescapeHTML(cleaned)
+      cleaned = cleaned.gsub(/&commat;/i, "@").gsub(/&period;/i, ".")
+      break if cleaned == prev
+    end
+
+    # 3. Decode percent-encoded components if present
+    if cleaned.include?("%")
+      begin
+        cleaned = URI.decode_www_form_component(cleaned)
+      rescue StandardError
+        # ignore percent decoding error
+      end
+    end
+
+    cleaned
+  end
+
   private
 
   def scan_object(obj, path:, item_id:, violations:)
@@ -59,47 +87,80 @@ class PrivacyScanner
   end
 
   def check_string(str, path:, item_id:, violations:)
-    if str =~ EMAIL_REGEX
-      violations << { item_id: item_id, field: path, type: "email_detected", snippet: redact_match(str, EMAIL_REGEX) }
+    canonical = self.class.canonicalize_text(str)
+
+    if str =~ EMAIL_REGEX || canonical =~ EMAIL_REGEX
+      type = (str =~ EMAIL_REGEX) ? "email_detected" : "encoded_email_detected"
+      violations << { item_id: item_id, field: path, type: type, snippet: "[REDACTED_EMAIL]" }
     end
 
-    if str =~ CANARY_REGEX
-      violations << { item_id: item_id, field: path, type: "canary_token_detected", snippet: redact_match(str, CANARY_REGEX) }
+    if str =~ CANARY_REGEX || canonical =~ CANARY_REGEX
+      type = (str =~ CANARY_REGEX) ? "canary_token_detected" : "encoded_canary_detected"
+      violations << { item_id: item_id, field: path, type: type, snippet: "[REDACTED_CANARY]" }
     end
 
-    if str =~ TOKEN_REGEX
-      violations << { item_id: item_id, field: path, type: "credential_or_token_detected", snippet: "REDACTED_CREDENTIAL" }
+    if str =~ TOKEN_REGEX || canonical =~ TOKEN_REGEX
+      type = (str =~ TOKEN_REGEX) ? "credential_or_token_detected" : "encoded_token_detected"
+      violations << { item_id: item_id, field: path, type: type, snippet: "[REDACTED_TOKEN]" }
     end
 
-    if str =~ HTML_TAG_REGEX
-      violations << { item_id: item_id, field: path, type: "executable_html_detected", snippet: "REDACTED_HTML" }
+    if str =~ HTML_TAG_REGEX || canonical =~ HTML_TAG_REGEX
+      type = (str =~ HTML_TAG_REGEX) ? "executable_html_detected" : "encoded_html_detected"
+      violations << { item_id: item_id, field: path, type: type, snippet: "[REDACTED_HTML]" }
     end
 
-    if str =~ SSN_REGEX
-      violations << { item_id: item_id, field: path, type: "ssn_detected", snippet: "REDACTED_SSN" }
+    if str =~ SSN_REGEX || canonical =~ SSN_REGEX
+      type = (str =~ SSN_REGEX) ? "ssn_detected" : "encoded_ssn_detected"
+      violations << { item_id: item_id, field: path, type: type, snippet: "[REDACTED_SSN]" }
     end
 
-    # If this field is a URL, ensure tracking query parameters are absent
-    if path.end_with?("job_url") && str.start_with?("http")
+    # If this field is a URL or contains URL structure, inspect tracking and query arguments
+    if path.end_with?("job_url") || str.start_with?("http://") || str.start_with?("https://")
       begin
-        uri = URI.parse(str)
+        clean_url_str = str.gsub(/[\u200B-\u200D\uFEFF\u2060]/, "")
+        uri = URI.parse(clean_url_str)
         if uri.query
           params = CGI.parse(uri.query)
           bad_params = params.keys.select { |k| k.downcase.start_with?("utm_") || %w[gclid fbclid msclkid].include?(k.downcase) }
           if bad_params.any?
-            violations << { item_id: item_id, field: path, type: "tracking_parameters_detected", snippet: bad_params.join(", ") }
+            violations << { item_id: item_id, field: path, type: "tracking_parameters_detected", snippet: "[REDACTED_PARAMS]" }
+          end
+
+          params.each do |k, values|
+            lower_k = k.to_s.downcase.strip
+            if %w[contact email user applicant candidate author secret bearer token auth].any? { |bad| lower_k.include?(bad) }
+              violations << { item_id: item_id, field: "#{path}?#{k}", type: "sensitive_query_parameter_detected", snippet: "[REDACTED_PARAM_KEY]" }
+            end
+
+            values.each do |val|
+              decoded = begin
+                CGI.unescape(val)
+              rescue StandardError
+                val
+              end
+
+              if decoded =~ EMAIL_REGEX
+                violations << { item_id: item_id, field: "#{path}?#{k}", type: "email_in_url_detected", snippet: "[REDACTED_EMAIL]" }
+              end
+              if decoded =~ CANARY_REGEX
+                violations << { item_id: item_id, field: "#{path}?#{k}", type: "canary_in_url_detected", snippet: "[REDACTED_CANARY]" }
+              end
+              if decoded =~ TOKEN_REGEX
+                violations << { item_id: item_id, field: "#{path}?#{k}", type: "token_in_url_detected", snippet: "[REDACTED_TOKEN]" }
+              end
+            end
           end
         end
         if uri.fragment
-          violations << { item_id: item_id, field: path, type: "url_fragment_detected", snippet: uri.fragment }
+          violations << { item_id: item_id, field: path, type: "url_fragment_detected", snippet: "[REDACTED_FRAGMENT]" }
         end
       rescue URI::InvalidURIError
-        violations << { item_id: item_id, field: path, type: "malformed_url", snippet: str[0, 50] }
+        violations << { item_id: item_id, field: path, type: "malformed_url", snippet: "[REDACTED_URL]" }
       end
     end
   end
 
   def redact_match(str, regex)
-    str.match(regex).to_s
+    "[REDACTED_SECRET]"
   end
 end

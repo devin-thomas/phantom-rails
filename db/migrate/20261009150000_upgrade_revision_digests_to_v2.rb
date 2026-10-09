@@ -18,19 +18,8 @@ class UpgradeRevisionDigestsToV2 < ActiveRecord::Migration[8.1]
       source_record_key = raw["source_record_key"].presence || sr&.source_record_key
       mention_key = raw["mention_key"].presence || sm&.mention_key
 
-      # Reconcile discrepancies deterministically and maintain audit trail
-      if sm && raw["source_domain"].present? && sm.source_domain != raw["source_domain"]
-        Rails.logger.info("UpgradeRevisionDigestsToV2: Reconciling mention #{sm.id} source_domain '#{sm.source_domain}' -> '#{raw['source_domain']}'")
-        sm.update_columns(source_domain: raw["source_domain"])
-      end
-      if sm && raw["job_id"].present? && sm.job_id != raw["job_id"]
-        Rails.logger.info("UpgradeRevisionDigestsToV2: Reconciling mention #{sm.id} job_id '#{sm.job_id}' -> '#{raw['job_id']}'")
-        sm.update_columns(job_id: raw["job_id"])
-      end
-      if sr && raw["origin_class"].present? && sr.origin_class != raw["origin_class"]
-        Rails.logger.info("UpgradeRevisionDigestsToV2: Reconciling record #{sr.id} origin_class '#{sr.origin_class}' -> '#{raw['origin_class']}'")
-        sr.update_columns(origin_class: raw["origin_class"])
-      end
+      # QA5-06 & QA6-005: Recompute revision digest from immutable historical raw_safe_fields without modifying parent records
+
 
       attrs = {
         "source_system" => source_system,
@@ -60,7 +49,7 @@ class UpgradeRevisionDigestsToV2 < ActiveRecord::Migration[8.1]
       existing = SourceRevision.where(source_mention_id: rev.source_mention_id, revision_digest: v2_digest).where.not(id: rev.id).first
       if existing
         # Re-point foreign keys and collapse duplicate row safely
-        Rails.logger.info("UpgradeRevisionDigestsToV2: Collapsing duplicate revision #{rev.id} into #{existing.id} for digest #{v2_digest}")
+        Rails.logger.info("UpgradeRevisionDigestsToV2: Collapsing duplicate revision #{rev.id} into #{existing.id}")
         ApprovedReleaseRevision.where(source_revision_id: rev.id).find_each do |arr|
           if ApprovedReleaseRevision.where(approved_release_id: arr.approved_release_id, source_revision_id: existing.id).exists?
             arr.destroy
@@ -79,7 +68,7 @@ class UpgradeRevisionDigestsToV2 < ActiveRecord::Migration[8.1]
 
         rev.destroy
       else
-        Rails.logger.info("UpgradeRevisionDigestsToV2: Upgraded revision #{rev.id} to v2 digest #{v2_digest}")
+        Rails.logger.info("UpgradeRevisionDigestsToV2: Upgraded revision #{rev.id} to v2 digest")
         rev.update_columns(revision_digest: v2_digest, digest_version: "v2")
       end
     end

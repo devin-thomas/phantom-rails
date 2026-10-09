@@ -112,8 +112,15 @@ class ReleaseGate
 
     scan_result = PrivacyScanner.scan_batch(parsed_batch.valid_items)
     unless scan_result.passed
-      scan_errors = scan_result.violations.map { |v| "#{v[:type]} at #{v[:field]} (#{v[:snippet]})" }
+      scan_errors = scan_result.violations.map { |v| "#{v[:type]} at #{v[:field]}" }
       errors << "Automated privacy scan failed: #{scan_errors.join('; ')}"
+    end
+
+    sanitized_items = parsed_batch.valid_items.map { |item| Sanitizer.sanitize_item(item) }
+    sanitized_scan = PrivacyScanner.scan_batch(sanitized_items)
+    unless sanitized_scan.passed
+      scan_errors = sanitized_scan.violations.map { |v| "#{v[:type]} at #{v[:field]}" }
+      errors << "Automated privacy scan failed on sanitized projection: #{scan_errors.join('; ')}"
     end
 
     unless manifest["automated_checks_passed"] == true
@@ -134,7 +141,11 @@ class ReleaseGate
     raise "Cannot build manifest for invalid candidate: #{parsed.batch_errors}" unless parsed.success
 
     scan = PrivacyScanner.scan_batch(parsed.valid_items)
-    raise "Cannot build manifest for candidate with privacy violations: #{scan.violations}" unless scan.passed
+    raise "Cannot build manifest for candidate with privacy violations: #{scan.violations.map { |v| v[:type] }.join(', ')}" unless scan.passed
+
+    sanitized_items = parsed.valid_items.map { |item| Sanitizer.sanitize_item(item) }
+    sanitized_scan = PrivacyScanner.scan_batch(sanitized_items)
+    raise "Cannot build manifest for candidate with privacy violations in sanitized projection: #{sanitized_scan.violations.map { |v| v[:type] }.join(', ')}" unless sanitized_scan.passed
 
     hist_count = parsed.valid_items.count { |i| i["origin_class"] == "sanitized_historical" }
     synth_count = parsed.valid_items.count { |i| i["origin_class"] == "adversarial_synthetic" }

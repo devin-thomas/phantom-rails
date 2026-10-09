@@ -15,6 +15,17 @@ class ApprovedReleaseManager
   end
 
   def publish!(batch_content, manifest_content)
+    # QA6-001: Enforce application-level deny-by-default publication quarantine
+    if ENV["PHANTOM_PUBLISH_ALLOW"] != "true" && !Rails.env.test?
+      return PublishResult.new(
+        success: false,
+        approved_release: nil,
+        corpus_revision: nil,
+        postings_count: 0,
+        errors: ["Publication quarantined: explicit authorization PHANTOM_PUBLISH_ALLOW=true is required to publish public releases"]
+      )
+    end
+
     # Step 1: Strict release gate validation
     gate_result = ReleaseGate.evaluate(batch_content, manifest_content)
     unless gate_result.approved
@@ -89,6 +100,21 @@ class ApprovedReleaseManager
       # Reconcile fields for all associated postings using approved revisions
       postings.find_each do |p|
         FieldReconciler.reconcile!(p)
+      end
+
+      # QA6-002: Pre-activation full projection scan on all associated postings
+      postings.find_each do |p|
+        p_json = PostingSerializer.render_one(p).to_json
+        p_scan = PrivacyScanner.scan_string(p_json)
+        unless p_scan.clean?
+          raise "Pre-activation privacy gate failed on posting #{p.public_id}: #{p_scan.violations.map { |v| v[:type] }.join(', ')}"
+        end
+
+        prov_json = ProvenanceSerializer.render(p).to_json
+        prov_scan = PrivacyScanner.scan_string(prov_json)
+        unless prov_scan.clean?
+          raise "Pre-activation privacy gate failed on provenance for #{p.public_id}: #{prov_scan.violations.map { |v| v[:type] }.join(', ')}"
+        end
       end
 
       # Activate this release (atomically deactivating previous)

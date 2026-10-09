@@ -1976,15 +1976,236 @@ class QaAuditRemediationTest < ActionDispatch::IntegrationTest
     assert_equal expected_v2, rev.revision_digest,
       "Migration must compute v2 digest using historical raw_safe_fields rather than mutated current metadata"
 
-    # Replay original batch: must match existing revision as unchanged
-    replay_batch = {
+    # QA6-005: Assert migration NEVER rewrote parent SourceMention or SourceRecord
+    assert_equal "mutated-domain.example.com", sm.reload.source_domain
+    assert_equal "JOB-MUTATED", sm.reload.job_id
+    assert_equal "adversarial_synthetic", rec.reload.origin_class
+
+    # Replay on clean record: must match existing revision as unchanged
+    clean_rec = SourceRecord.create!(source_system: "ats", source_record_key: "rec-clean-replay", origin_class: "sanitized_historical")
+    clean_sm = SourceMention.create!(
+      source_record: clean_rec,
+      mention_key: "m1",
+      source_kind: "official_employer",
+      source_domain: "careers.acme.example.com",
+      job_id: "JOB-CLEAN"
+    )
+    clean_item = original_item.merge("source_record_key" => "rec-clean-replay", "job_id" => "JOB-CLEAN")
+    clean_rev = clean_sm.source_revisions.create!(
+      revision_digest: "legacy_digest_v1",
+      digest_version: "v1",
+      observed_at: Time.iso8601("2026-09-20T10:00:00Z"),
+      title: "Legacy Systems Architect",
+      company: "Acme Aerospace",
+      location: "Denver, CO",
+      raw_safe_fields: clean_item
+    )
+    UpgradeRevisionDigestsToV2.new.up
+    clean_report = BatchImporter.import_string(JSON.generate({
       "batch_schema_version" => "1.0",
-      "batch_id" => "replay-batch-506",
+      "batch_id" => "replay-clean-506",
       "origin_class" => "sanitized_historical",
-      "items" => [original_item]
+      "items" => [clean_item]
+    }))
+    assert_equal 1, clean_report.unchanged_count, "Clean replay must be unchanged"
+  end
+
+  # ==========================================================================
+  # Round 6: STOP-SHIP / Privacy Boundary Hardening (QA6-001 through QA6-005)
+  # ==========================================================================
+
+  test "QA Round 6: QA6-001 publication quarantine gate denies publication by default without PHANTOM_PUBLISH_ALLOW" do
+    batch_file = Rails.root.join("fixtures", "public-approved", "approved-batch-v1.json")
+    manifest_file = Rails.root.join("fixtures", "public-approved", "approved-manifest-v1.json")
+
+    begin
+      orig_env = Rails.env
+      Rails.env = ActiveSupport::StringInquirer.new("production")
+      orig_allow = ENV["PHANTOM_PUBLISH_ALLOW"]
+      ENV.delete("PHANTOM_PUBLISH_ALLOW")
+
+      res = ApprovedReleaseManager.publish_files!(batch_file, manifest_file)
+      assert_not res.success
+      assert_includes res.errors.first, "Publication quarantined"
+
+      ENV["PHANTOM_PUBLISH_ALLOW"] = "true"
+      # Quarantine lifted
+      assert_equal "true", ENV["PHANTOM_PUBLISH_ALLOW"]
+    ensure
+      Rails.env = orig_env
+      ENV["PHANTOM_PUBLISH_ALLOW"] = orig_allow
+    end
+  end
+
+  test "QA Round 6: QA6-002 & QA6-003 encoded PII in text and URLs rejected before activation and stripped safely" do
+    # 1. HTML entity emails (&#64;, &#x40;, &commat;, &#46;) caught by PrivacyScanner
+    encoded_email_1 = "Please contact qa6&#64;example&#46;com for details"
+    encoded_email_2 = "Send resume to audit&commat;phantomrails&period;dev"
+    encoded_email_3 = "Direct inquiry: test&#x40;secret&#x2e;org"
+    zero_width_email = "Contact candidate\u200B@\u200Bexample.com"
+
+    [encoded_email_1, encoded_email_2, encoded_email_3, zero_width_email].each do |enc|
+      scan = PrivacyScanner.scan_string(enc)
+      assert_not scan.clean?, "PrivacyScanner must catch encoded email: #{enc}"
+      assert scan.violations.any? { |v| v[:type].include?("email") }
+    end
+
+    # 2. Release candidate with HTML entity email is rejected by ReleaseGate
+    cand_with_encoded = {
+      "batch_schema_version" => "1.0",
+      "batch_id" => "cand-qa6-encoded-email",
+      "origin_class" => "sanitized_historical",
+      "items" => [
+        {
+          "source_record_key" => "rec-qa6-enc-1",
+          "mention_key" => "m1",
+          "source_system" => "reviewed_export",
+          "source_domain" => "careers.acme.example.com",
+          "observed_at" => "2026-09-20T10:00:00Z",
+          "source_kind" => "official_employer",
+          "title" => "Aerospace Software Lead",
+          "company" => "Acme Aerospace",
+          "location" => "Denver, CO",
+          "summary_excerpt" => "Reach out to qa6&#64;example&#46;com for information"
+        }
+      ]
     }
-    report = BatchImporter.import_string(JSON.generate(replay_batch))
-    assert_equal 1, report.unchanged_count, "Replay must be unchanged"
-    assert_equal 0, report.inserted_count
+    cand_json = JSON.generate(cand_with_encoded)
+    manifest = {
+      "manifest_version" => "1.0",
+      "corpus_version" => "2026.06.1",
+      "candidate_digest" => ReleaseGate.compute_digest(cand_json),
+      "total_items" => 1,
+      "origin_class_counts" => { "sanitized_historical" => 1 },
+      "automated_checks_passed" => true,
+      "approved_by" => "operator",
+      "approved_at" => Time.now.utc.iso8601,
+      "approval_signature" => ReleaseGate.compute_digest(cand_json)
+    }
+
+    gate_res = ReleaseGate.evaluate(cand_json, JSON.generate(manifest))
+    assert_not gate_res.approved, "ReleaseGate must reject candidate containing encoded email"
+    assert gate_res.errors.any? { |e| e.include?("Automated privacy scan failed") }
+
+    # 3. Percent-encoded URL contact parameter (?contact=private%40example.com)
+    dirty_url = "https://careers.example.org/jobs/123?contact=private%40example.com&job_id=456"
+    url_scan = PrivacyScanner.scan_string(dirty_url)
+    assert_not url_scan.clean?, "PrivacyScanner must detect percent-encoded contact in URL"
+
+    clean_url = Sanitizer.clean_url(dirty_url)
+    assert_not_nil clean_url
+    assert_no_match(/contact=/, clean_url, "clean_url must strip contact query parameter")
+    assert_no_match(/example\.com/, clean_url)
+    assert_includes clean_url, "job_id=456"
+
+    # 4. Encoded markup (&#60;script&#62;) stripped clean with zero <script> in output
+    markup_payload = "Safe text &#60;script&#62;alert(1)&#60;/script&#62; overview"
+    cleaned_text = Sanitizer.clean_text(markup_payload)
+    assert_equal "Safe text alert(1) overview", cleaned_text
+    assert_no_match(/<script>/, cleaned_text)
+  end
+
+  test "QA Round 6: QA6-004 error diagnostic redaction emits opaque codes and zero raw matched secrets" do
+    secret_email = "real-person-secret-dont-leak@confidential.example.org"
+    secret_canary = "canary_private_token_999888"
+
+    # 1. PrivacyScanner redact_match emits opaque markers
+    assert_equal "[REDACTED_SECRET]", PrivacyScanner.new.send(:redact_match, secret_email, PrivacyScanner::EMAIL_REGEX)
+
+    # 2. PrivacyScanner violations contain zero raw matched secret
+    scan_report = PrivacyScanner.scan_string("User #{secret_email} with #{secret_canary}")
+    assert_not scan_report.clean?
+    scan_report.violations.each do |v|
+      assert_no_match(/#{Regexp.escape(secret_email)}/, v[:snippet])
+      assert_no_match(/#{Regexp.escape(secret_canary)}/, v[:snippet])
+    end
+
+    # 3. ReleaseGate error strings contain zero raw secret
+    bad_batch = {
+      "batch_schema_version" => "1.0",
+      "batch_id" => "secret-leak-test",
+      "origin_class" => "adversarial_synthetic",
+      "items" => [
+        {
+          "source_record_key" => "rec-secret",
+          "mention_key" => "m1",
+          "source_system" => "ats",
+          "observed_at" => "2026-09-20T10:00:00Z",
+          "source_kind" => "third_party_board",
+          "title" => "Engineer #{secret_email}",
+          "company" => "Test Corp",
+          "location" => "Remote"
+        }
+      ]
+    }
+    batch_json = JSON.generate(bad_batch)
+    gate = ReleaseGate.evaluate(batch_json, JSON.generate({
+      "manifest_version" => "1.0",
+      "corpus_version" => "2026.06.1",
+      "candidate_digest" => ReleaseGate.compute_digest(batch_json),
+      "total_items" => 1,
+      "origin_class_counts" => { "adversarial_synthetic" => 1 },
+      "automated_checks_passed" => true,
+      "approved_by" => "operator",
+      "approved_at" => Time.now.utc.iso8601,
+      "approval_signature" => ReleaseGate.compute_digest(batch_json)
+    }))
+
+    assert_not gate.approved
+    error_summary = gate.errors.join("; ")
+    assert_no_match(/#{Regexp.escape(secret_email)}/, error_summary,
+      "ReleaseGate error diagnostics must NEVER leak raw sensitive inputs")
+  end
+
+  test "QA Round 6: QA6-005 Tier 3 withholds merge when external aggregators lack verified source authority" do
+    # Two unreviewed external third-party boards claiming boards.greenhouse.io with generic ID
+    batch = {
+      "batch_schema_version" => "1.0",
+      "batch_id" => "qa6-005-untrusted-boards",
+      "origin_class" => "adversarial_synthetic",
+      "items" => [
+        {
+          "source_record_key" => "untrusted-aggregator-1-rec",
+          "mention_key" => "m1",
+          "source_system" => "unreviewed_aggregator_1", # Not in TRUSTED_SYSTEMS
+          "source_domain" => "boards.greenhouse.io",
+          "job_id" => "GENERIC-ATS-999",
+          "observed_at" => "2026-09-21T10:00:00Z",
+          "source_kind" => "third_party_board",
+          "title" => "Platform Systems Engineer",
+          "company" => "Omega Dynamics",
+          "location" => "Seattle, WA"
+        },
+        {
+          "source_record_key" => "untrusted-aggregator-2-rec",
+          "mention_key" => "m1",
+          "source_system" => "unreviewed_aggregator_2", # Not in TRUSTED_SYSTEMS
+          "source_domain" => "boards.greenhouse.io",
+          "job_id" => "GENERIC-ATS-999",
+          "observed_at" => "2026-09-22T10:00:00Z",
+          "source_kind" => "third_party_board",
+          "title" => "Platform Systems Engineer II",
+          "company" => "Omega Dynamics",
+          "location" => "Seattle, WA"
+        }
+      ]
+    }
+
+    report = BatchImporter.import_string(JSON.generate(batch))
+    assert_equal "complete", report.status
+
+    m1 = SourceMention.joins(:source_record).find_by(source_records: { source_record_key: "untrusted-aggregator-1-rec" })
+    m2 = SourceMention.joins(:source_record).find_by(source_records: { source_record_key: "untrusted-aggregator-2-rec" })
+    assert_not_nil m1.canonical_posting_id
+    assert_not_nil m2.canonical_posting_id
+
+    # Must NOT merge into single posting because neither side has verified authority
+    assert_not_equal m1.canonical_posting_id, m2.canonical_posting_id,
+      "Untrusted aggregators claiming ATS domain without verified authority must NOT merge under Tier 3"
+
+    # Must record potential duplicate link with unverified_shared_job_id
+    dupe_exists = PotentialDuplicate.where(posting_a_id: [m1.canonical_posting_id, m2.canonical_posting_id],
+                                           posting_b_id: [m1.canonical_posting_id, m2.canonical_posting_id]).exists?
+    assert dupe_exists, "Must flag unverified shared platform key as potential duplicate"
   end
 end

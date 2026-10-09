@@ -10,7 +10,9 @@ class Sanitizer
   def self.clean_url(url_string)
     return nil if url_string.nil? || url_string.to_s.strip.empty?
 
-    uri = URI.parse(url_string.to_s.strip)
+    # Strip zero-width spaces and control characters
+    clean_str = url_string.to_s.strip.gsub(/[\u200B-\u200D\uFEFF\u2060]/, "").gsub(/[\x00-\x1F\x7F]/, "")
+    uri = URI.parse(clean_str)
     return nil unless uri.is_a?(URI::HTTP) || uri.is_a?(URI::HTTPS)
 
     # Disallow userinfo (user:pass@)
@@ -23,9 +25,33 @@ class Sanitizer
     # Clean query parameters
     if uri.query
       params = CGI.parse(uri.query)
-      filtered = params.reject do |k, _|
-        lower_k = k.downcase
-        TRACKING_PARAMS.include?(lower_k) || lower_k.start_with?("utm_") || lower_k.include?("token")
+      filtered = {}
+
+      params.each do |k, values|
+        lower_k = k.to_s.downcase.strip
+        next if TRACKING_PARAMS.include?(lower_k)
+        next if lower_k.start_with?("utm_")
+        next if %w[contact email user applicant candidate author secret bearer token auth session].any? { |bad| lower_k.include?(bad) }
+
+        clean_values = values.map do |val|
+          decoded = begin
+            CGI.unescape(val)
+          rescue StandardError
+            val
+          end
+
+          # Drop parameter if decoded value contains email, canary, token, or SSN
+          if decoded =~ PrivacyScanner::EMAIL_REGEX ||
+             decoded =~ PrivacyScanner::CANARY_REGEX ||
+             decoded =~ PrivacyScanner::TOKEN_REGEX ||
+             decoded =~ PrivacyScanner::SSN_REGEX
+            nil
+          else
+            val
+          end
+        end.compact
+
+        filtered[k] = clean_values if clean_values.any?
       end
 
       uri.query = filtered.empty? ? nil : URI.encode_www_form(filtered)
@@ -41,11 +67,22 @@ class Sanitizer
     return nil if text.nil?
 
     cleaned = text.to_s
-    # Strip HTML tags
+    # 1. Strip zero-width spaces and control characters
+    cleaned = cleaned.gsub(/[\u200B-\u200D\uFEFF\u2060]/, "")
+    cleaned = cleaned.gsub(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/, "")
+
+    # 2. Iteratively decode HTML entities (up to 3 passes to handle nested encoding)
+    3.times do
+      prev = cleaned
+      cleaned = CGI.unescapeHTML(cleaned)
+      cleaned = cleaned.gsub(/&commat;/i, "@").gsub(/&period;/i, ".")
+      break if cleaned == prev
+    end
+
+    # 3. Strip HTML tags AFTER unescaping entities, so encoded <script> tags are caught and removed
     cleaned = cleaned.gsub(/<[^>]*>/, " ")
-    # Decode HTML entities
-    cleaned = CGI.unescapeHTML(cleaned)
-    # Normalize whitespaces
+
+    # 4. Normalize whitespaces
     cleaned = cleaned.gsub(/\s+/, " ").strip
 
     return nil if cleaned.empty?
