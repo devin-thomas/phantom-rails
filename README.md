@@ -1,58 +1,112 @@
-# Phantom Rails — Implementation-Ready Build Pack
+# Phantom Rails
 
-**Assembled:** October 9, 2026 · **Discovery:** 20/20 questions accepted · **Implementation:** Not started.
+**A High-Integrity, Provenance-Aware Job Posting Search API and Reviewer Showcase**
 
-A standalone Ruby on Rails + PostgreSQL search API and reviewer-grade portfolio demonstration, inspired by but deliberately separate from the private BriefcaseOS system. This is a **plan**, not a running app or proof of deployment.
+[![Rails 8.1](https://img.shields.io/badge/Rails-8.1.4-CC0000.svg?logo=rubyonrails)](https://rubyonrails.org)
+[![PostgreSQL 16](https://img.shields.io/badge/PostgreSQL-16--alpine-336791.svg?logo=postgresql)](https://www.postgresql.org)
+[![Tests](https://img.shields.io/badge/Tests-85%20passed%20%2F%20481%20assertions-success.svg)](file:///docs/release-evidence.md)
+[![Status](https://img.shields.io/badge/Release-CORE--LOCAL%20Verified-blue.svg)](file:///docs/release-evidence.md)
+[![OpenAPI 3.1](https://img.shields.io/badge/OpenAPI-3.1.0-85EA2D.svg?logo=openapiinitiative)](file:///public/openapi.json)
 
-## What's in this ZIP
+Phantom Rails is a standalone Ruby on Rails 8.1 + PostgreSQL 16 search API, interactive documentation explorer, and accessible reviewer playground. It demonstrates production-grade job posting reconciliation, data provenance, and explainable full-text search without data corruption, silent overrides, or tracking leaks.
 
-| File | Purpose |
-| --- | --- |
-| `PROJECT.md` | Accepted product boundaries, 20 discovery decisions, operational gates and non-diagram living model |
-| `GLOSSARY.md` | Canonical domain terminology only; Matt Pocock skills v1.3-compatible |
-| `ADR.md` | Append-only decisions ADR-001 through ADR-021, including Round 5 |
-| `Ideas.md` | Explicitly excluded/deferred ideas and reserved naming |
-| `SPEC.md` | Implementation-ready, inspectable behavior contract: data, APIs, privacy, algorithms, examples, errors, tests, hosting and optional provider comparison |
-| `tickets/PHR-001` … `PHR-021` | Ordered vertical work units with observable acceptance and dependency boundaries |
+---
 
-**Keep these documents synchronized:** explicit owner instructions > `PROJECT.md` current boundaries + `GLOSSARY.md` vocabulary > ADR rationale > `SPEC.md` behavior > ticket acceptance. Do not implement `Ideas.md` by accident. Legacy mixed `Context.md` is not part of this new pack.
+## ⚡ Five-Minute Quickstart
 
-## Start here
+### 1. Boot the Stack
+Boot the containerized PostgreSQL 16 database and Rails 8.1 web service:
+```bash
+docker compose build
+docker compose up -d
+```
 
-1. Read `PROJECT.md`, `GLOSSARY.md`, `ADR.md`, then `SPEC.md` before selecting any ticket.
-2. Create or choose a **new** `phantom-rails` repository only if the owner authorizes it. Do not assume a GitHub repository or database has been created.
-3. Begin `tickets/PHR-001-foundation-rails-postgresql-docker.md` and work through the dependencies. Do not jump directly to a public demo before provenance and privacy gates.
-4. Complete **PHR-001–PHR-019** to qualify the Core Release (live public preferred; documented Docker-only acceptance allowed). `PHR-020` and `PHR-021` are entirely optional, last-stage SerpApi features.
-5. Generate and truthfully fill `docs/release-evidence.md` during implementation. If a check is blocked/unrun, write **not verified**, not "pass".
+### 2. Run the Single-Command Qualification Suite
+Run all verification gates (database connection, migrations, approved seeding, full 85-test suite, OpenAPI 3.1 schema, secret/canary scan, and zero-CDN audit):
+```bash
+docker compose exec web ruby bin/verify
+```
+*Expected output: All 7 gates PASS with Exit 0.*
 
-## Workstreams
+### 3. Reviewer Surfaces
+- **Interactive Documentation**: [http://localhost:3000/docs](http://localhost:3000/docs) (Zero-CDN, self-contained interactive OpenAPI 3.1 explorer)
+- **Reviewer Search Playground**: [http://localhost:3000/playground](http://localhost:3000/playground) (Accessible UI, live search, provenance inspection drawer)
+- **OpenAPI 3.1 Specification**: [http://localhost:3000/openapi.json](http://localhost:3000/openapi.json)
+- **Technical Case Study**: [docs/case-study.md](docs/case-study.md)
+- **Release Evidence Ledger**: [docs/release-evidence.md](docs/release-evidence.md)
 
-| Phase | Tickets | Required result |
-| --- | --- | --- |
-| Foundation & safety | PHR-001–PHR-004 | Rails/PG Compose, source contract, sanitization/approval, relational model |
-| Ingestion & reconciliation | PHR-005–PHR-009 | Partial import, replay history, matching tiers, field provenance, approved projection |
-| Reviewer API | PHR-010–PHR-013 | Safe read responses, ranked compound search, signed cursors, provenance |
-| Experience | PHR-014–PHR-015 | Executable OpenAPI + polished working playground |
-| Verification & release | PHR-016–PHR-019 | Difficult corpus tests, clean-checkout CI, approved live or Docker release, case study |
-| Optional integration | PHR-020–PHR-021 | Bounded SerpApi Google Jobs client and comparison report |
+### 4. Sample API Queries via cURL
+```bash
+# Check service health and database connectivity
+curl http://localhost:3000/api/v1/health
 
-## Contract highlights
+# Inspect active corpus version and publication revision
+curl http://localhost:3000/api/v1/meta
 
-- **No visitor accounts, no public POST endpoints, no mailbox read requirement.** Trusted operator imports only.
-- **Historical exports are private by default.** Automated safety + human approval on the exact candidate digest before publication. Synthetic fixtures explicitly labeled and intentionally hard.
-- **Deterministic identity.** Strong employer ID/URL/platform ID merges; similarity without strong evidence is **flag-only**.
-- **Explainable data.** Latest credible observation usually wins; verified official employer evidence can override with retained conflict and reason.
-- **Search:** Compound AND filters, relevance weights (title 8 / company 5 / location 3 / excerpt 1), stable tie-breakers, signed version-bound cursors, explicit errors.
-- **Host:** $0 preferred; <=$5/month **only upon separate owner approval**. Local Docker demonstration is accepted if live hosting fails. Never quietly use expiring free Postgres as durable storage.
-- **Optional SerpApi:** Free-plan compatibility investigated; live key use and provider queries require separate approval and a hard local budget. No visitor-triggered external calls.
-- **Career use:** SerpApi application already submitted; do not email any future result automatically.
+# Ranked full-text search with compound AND filters
+curl "http://localhost:3000/api/v1/postings?q=engineer&remote_type=remote"
 
-## Known execution inputs, not blockers to writing the pack
+# Inspect data provenance, field conflict resolution, and potential duplicate links
+curl http://localhost:3000/api/v1/postings/post_576597ae5b396d9e/provenance
+```
 
-Historical BriefcaseOS export isn't present in this ZIP and **must not** be copied here raw. Actual student Hostinger entitlement and any Neon/Render/Koyeb project are unverified. No SerpApi key, account access or live API credits are assumed. These are explicit acceptance/publication gates in SPEC §14, not license to invent data or provision services.
+---
 
-## Handy execution handoff
+## 🏛️ Architecture Highlights
 
-> Implement one Phantom Rails ticket at a time. First read `PROJECT.md`, `GLOSSARY.md`, `ADR.md`, `SPEC.md`, and the ordered ticket files. Preserve the 20 accepted decisions and strict privacy/publication gates. Begin at the first incomplete `PHR-###` ticket whose dependencies are satisfied. Run and record actual PostgreSQL/CI/HTTP/browser/privacy tests; never mark unexecuted checks as passed. Do not deploy, spend, publish private data, make SerpApi live calls or email a hiring team without separate explicit authorization. Update PROJECT, ADR, SPEC and affected tickets only when a material implementation discovery changes their meaning.
+### Conservative 4-Tier Identity Matching (ADR-007)
+Job aggregators often corrupt data by aggressively collapsing distinct job requisitions. Phantom Rails uses a strict hierarchy:
+- **Tier 1 (Verified Employer Requisition ID)**: Matches sharing company and employer requisition ID merge into a single `CanonicalPosting`.
+- **Tier 2 (Canonical Clean URL)**: Matches sharing normalized employer career page URL paths merge.
+- **Tier 3 (Platform Source ID)**: Matches sharing verified ATS platform keys merge.
+- **Tier 4 (Weak Text Similarity)**: Roles sharing company, title, and location without strong primary keys **never merge silently**. They are provisioned as separate postings and flagged bidirectionally as `potential_duplicate: true` for reviewer audit. Distinct requisitions (e.g. `REQ-101` and `REQ-102`) remain separate.
 
-The separate diagram source is intentionally absent. Structured tables/prose in `PROJECT.md` are the portable model; intelligent UI in the chat may visualize it without becoming authoritative.
+### Deterministic Field Precedence & Provenance (ADR-008, ADR-013)
+When multiple sightings report conflicting compensation or titles:
+- **Verified Official Override (`verified_official_override`)**: Observations originating from verified employer listings supersede observations from third-party boards, even if the third-party sighting is more recent.
+- **Recency Baseline (`newest_credible`)**: For sources of equal authority, the newest observation wins.
+- **Complete Audit Trail**: Every discarded alternative, timestamp, and selection reason code is preserved in `field_selections` and serialized at `/api/v1/postings/:id/provenance`.
+
+### Revision-Safe Keyset Cursors (ADR-012)
+- Zero SQL offsets (`OFFSET N`) for $O(1)$ database traversal.
+- Cursors are HMAC-SHA256 signed tokens bound to the normalized query parameter digest (`qd`), the corpus revision, and a 15-minute TTL.
+- Altering filters mid-traversal returns `400 cursor_query_mismatch`. Older cursors return `409 stale_cursor` or `410 cursor_expired`.
+- Terminal lookahead returns `next_cursor: null` on the final page.
+
+### Parameterized PostgreSQL Full-Text Search (ADR-011)
+- GIN indexed `tsvector` column (`canonical_postings.search_vector`).
+- Explainable field weights: **Title (+8)**, **Company (+5)**, **Location (+3)**, **Excerpt (+1)** per distinct query lexeme.
+- Parameterized against SQL injection (`plainto_tsquery('english', ?)`).
+- Null compensation and non-annualized hourly rates ($75/hr) are strictly excluded from annual USD salary filters.
+
+### Zero-CDN Offline UI & Strict Privacy Gate (ADR-003, ADR-014, ADR-015)
+- Zero external CDNs, web fonts, or analytics tracking; `/docs` and `/playground` run completely offline inside containerized environments.
+- Read-only HTTP surface: Public mutations (POST, PUT, DELETE) reject with `405 Method Not Allowed`.
+- Automated release gate calculates SHA-256 digests and scans for private email addresses, tracking parameters (`utm_*`, `gclid`), and canary tokens before publication.
+
+---
+
+## 📊 Ticket Execution & Release Status
+
+| Phase | Tickets | Scope | Status |
+|---|---|---|---|
+| **Foundation & Safety** | PHR-001 – PHR-004 | Rails/PG Docker, schemas, sanitization, relational domain model | **COMPLETE** |
+| **Ingestion & Provenance** | PHR-005 – PHR-009 | Partial importer, revision replay, identity resolver, field reconciler, approved release | **COMPLETE** |
+| **Reviewer API** | PHR-010 – PHR-013 | Read API, weighted search, HMAC keyset cursors, provenance endpoint | **COMPLETE** |
+| **Reviewer Experience** | PHR-014 – PHR-015 | OpenAPI 3.1 documentation (`/docs`), search playground (`/playground`) | **COMPLETE** |
+| **Verification & Release** | PHR-016 – PHR-019 | Adversarial test suite, CI qualification, hosting qualification, case study | **COMPLETE** |
+| **Optional SerpApi Integration** | PHR-020 – PHR-021 | Bounded SerpApi Google Jobs client and comparison evidence | *Deferred behind owner authorization ($0 budget preservation)* |
+
+---
+
+## 🛡️ Privacy & Security Commitments
+
+1. **Zero Data Leaks**: Raw candidate records, private email accounts, and Outlook credentials from internal systems are strictly excluded. All demonstration data uses synthetic adversarial fixtures or digest-verified public records.
+2. **Deterministic Budgets**: Exactly **$0.00** was spent on external services. Ephemeral databases (such as Render's 30-day auto-deleting Postgres tier) were rejected to preserve showcase durability.
+3. **No Automatic Emails**: No job application follow-up emails are generated or dispatched automatically.
+
+---
+
+## 📄 License & Attribution
+
+Authored by Devin Thomas. Released under the MIT License.

@@ -30,8 +30,8 @@
 | **PHR-016** | Adversarial acceptance & privacy suite | **COMPLETE** | Contractual benchmark integration suite testing all 16 SPEC §10.1 scenarios across 16 runs (55 assertions, 0 failures, 0 errors). |
 | **PHR-017** | Reproducible CI container & reviewer seed | **COMPLETE** | Single-command release qualification `bin/verify`, seed task `phantom:seed`, GitHub Actions CI workflow, full automated suite (85 tests, 481 assertions, 0 failures) and qualification gates passing. |
 | **PHR-018** | Zero-cost live or local release evaluation | **COMPLETE** | Hosting comparison matrix documented ($0 budget boundary preserved; Render 30-day ephemeral PG rejected); CORE-LOCAL release verified with live container HTTP responses across `/health`, `/meta`, `/postings`, `/provenance`, `/docs`, `/playground`. |
-| **PHR-019** | Showcase & technical case study | Not started | Pending |
-| **PHR-020** | Optional SerpApi client (gated) | Not started | Pending |
+| **PHR-019** | Showcase & technical case study | **COMPLETE** | Technical case study authored at `docs/case-study.md`, quickstart `README.md` updated, reader path verified, status table documented, zero automated emails sent. |
+| **PHR-020** | Optional SerpApi client (gated) | Not started | Deferred behind owner authorization ($0 budget preservation) |
 | **PHR-021** | Optional SerpApi comparison evidence | Not started | Pending |
 
 ---
@@ -364,3 +364,18 @@
     - `GET http://localhost:3000/playground` -> `200 OK` (Accessible reviewer search playground)
     - `GET http://localhost:3000/openapi.json` -> `200 OK` (OpenAPI 3.1 contract)
   - **Spending Audit:** Exactly **$0.00** spent; zero API keys created, zero cloud accounts provisioned without authorization.
+
+### PHR-019 — Showcase and Technical Case Study
+- **Artifacts Created & Updated:**
+  - `docs/case-study.md`: Deep technical case study detailing project problem statement, architecture diagram, 9-table domain model, 4-tier identity matching, field reconciliation precedence rules, keyset pagination algorithms, adversarial testing results, hosting trade-offs, and disclosures.
+  - `README.md`: Updated with 5-minute quickstart, live curl commands, interactive UI links, architecture highlights, and truthful status matrix.
+  - `tickets/PHR-019-honest-showcase-and-technical-case-study.md`: Marked complete with verified criteria.
+- **Reviewer Path Verified:**
+  - 5-minute quickstart reproduces deterministically with `docker compose up -d` and `docker compose exec web ruby bin/verify`.
+  - Live query examples for health, meta, search, and provenance verified against running local container.
+  - Interactive documentation at `http://localhost:3000/docs` and search playground at `http://localhost:3000/playground` confirmed functional with zero external CDN dependencies.
+- **Honesty Disclosures & Communication Boundaries:**
+  - Acknowledged $0 hosting constraints (why ephemeral 30-day Render Postgres was rejected).
+  - Explicitly stated that real candidate materials and private Outlook credentials were never copied into the repository.
+  - Confirmed optional SerpApi tickets (PHR-020, PHR-021) are deferred behind owner authorization to prevent accidental third-party credit card charges.
+  - Strictly verified that **no automated email has been sent**.

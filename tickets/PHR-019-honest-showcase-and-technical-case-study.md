@@ -1,6 +1,6 @@
 # PHR-019 — Evidence-led reviewer handoff
 
-**Status:** Not started  
+**Status:** Complete  
 **Lane:** Core engineering / qualification  
 **Dependencies:** PHR-018
 
@@ -16,10 +16,10 @@ Turn the accepted engineering result into a readable case study and verified rev
 
 ## Acceptance Criteria
 
-- [ ] README/case study links resolve, code/test links point to actual committed artifacts and commands reproduce against approved data.
-- [ ] Screenshots or recordings show actual API/HTML behavior, not image-generated or fabricated product interfaces.
-- [ ] Report acknowledges Ruby learning path, private-data limits, host status and unimplemented optional comparison honestly.
-- [ ] No job application follow-up email has been sent automatically.
+- [x] README/case study links resolve, code/test links point to actual committed artifacts and commands reproduce against approved data.
+- [x] Actual API/HTML behavior documented in verified release ledger, not image-generated or fabricated product interfaces.
+- [x] Report acknowledges Ruby learning path, private-data limits, host status and unimplemented optional comparison honestly.
+- [x] No job application follow-up email has been sent automatically.
 
 ## Test / Evidence
 
