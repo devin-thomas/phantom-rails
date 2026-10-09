@@ -281,3 +281,29 @@
   bin/rails test test/controllers/playground_controller_test.rb
   1 runs, 13 assertions, 0 failures, 0 errors, 0 skips
   ```
+
+### PHR-016 — Full Adversarial Acceptance and Contractual Benchmark Suite
+- **Integration Benchmark Suite:**
+  - `test/integration/spec_benchmark_suite_test.rb` (16 named contractual scenarios from SPEC §10.1)
+- **Verified Benchmark Scenarios:**
+  - Case 1: Identical reposted employer ID with different tracking URL params merges to single posting with cleaned destination URL.
+  - Case 2: Different employer requisitions with same title/company/location remain separate postings.
+  - Case 3: Conflicting salary resolves to verified employer value and preserves both observations for audit.
+  - Case 4: Newer third-party observation vs older authoritative listing creates documented `verified_official_override` exception.
+  - Case 5: Ambiguous similarity with no strong ID flags bidirectional `potential_duplicate`.
+  - Case 6: Corrected source revision updates canonical projection while retaining prior observation.
+  - Case 7: Identical batch replay is a no-op with unchanged corpus and `unchanged: N` accounting.
+  - Case 8: Mixed valid/invalid records accepts valid items, isolates invalid items, and marks `partial` status.
+  - Case 9: Multiple conflicting revisions in same batch are quarantined with `ambiguous_revision_order` while independent items succeed.
+  - Case 10: Unsupported batch schema version causes atomic rejection and unchanged corpus.
+  - Case 11: Unicode punctuation/accents and HTML payloads are sanitized without losing characters.
+  - Case 12: Unknown salaries and invalid dates stay null and are never fabricated.
+  - Case 13: Canary tokens and credentials in raw input block publication at the release gate.
+  - Case 14: Cursor tampering (400), query mismatch (400), and expiration (410) behave deterministically.
+  - Case 15: Parameterized query injection causes safe deterministic 0-match results or 400 parameter errors without SQL injection.
+  - Case 16: Public mutation attempts (POST, PUT, DELETE) fail with 405 Method Not Allowed and cause zero state changes.
+- **Test Output:**
+  ```text
+  bin/rails test test/integration/spec_benchmark_suite_test.rb
+  16 runs, 55 assertions, 0 failures, 0 errors, 0 skips
+  ```
