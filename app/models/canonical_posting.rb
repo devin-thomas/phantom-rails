@@ -28,9 +28,13 @@ class CanonicalPosting < ApplicationRecord
     if approved_release&.approved_release_revisions&.exists?
       source_revisions.joins(:approved_release_revisions)
                       .where(approved_release_revisions: { approved_release_id: approved_release_id })
+    elsif approved_release&.approved_at.present?
+      source_revisions.where(
+        "source_revisions.created_at <= :app_at AND (source_revisions.observed_at IS NULL OR source_revisions.observed_at <= :app_at)",
+        app_at: approved_release.approved_at + 1.second
+      )
     else
-      source_revisions.joins(source_mention: :source_record)
-                      .where(source_records: { approved_release_id: approved_release_id })
+      source_revisions
     end
   end
 

@@ -57,7 +57,7 @@ class QaAuditRemediationTest < ActionDispatch::IntegrationTest
     unapproved_batch = {
       "batch_schema_version" => "1.0",
       "batch_id" => "unapproved-staging-batch",
-      "origin_class" => "adversarial_synthetic",
+      "origin_class" => "sanitized_historical",
       "items" => [
         {
           "source_record_key" => "rec-approved-1",
@@ -106,6 +106,7 @@ class QaAuditRemediationTest < ActionDispatch::IntegrationTest
       active: true
     )
 
+    rec = SourceRecord.create!(source_system: "ats", source_record_key: "rec-app-dupe", origin_class: "sanitized_historical", approved_release_id: release.id)
     approved_posting = CanonicalPosting.create!(
       approved_release: release,
       title: "Senior Backend Engineer",
@@ -114,6 +115,9 @@ class QaAuditRemediationTest < ActionDispatch::IntegrationTest
       first_observed_at: Time.now.utc,
       last_observed_at: Time.now.utc
     )
+    sm = SourceMention.create!(source_record: rec, mention_key: "m1", source_kind: "official_employer", canonical_posting_id: approved_posting.id)
+    rev = sm.source_revisions.create!(revision_digest: "d-app-1", observed_at: Time.now.utc, title: "Senior Backend Engineer", company: "Approved Corp", location: "Austin, TX")
+    ApprovedReleaseRevision.create!(approved_release: release, source_revision: rev, snapshot_source_domain: "careers.example.com")
 
     # 2. Create unapproved staging posting
     staging_posting = CanonicalPosting.create!(
@@ -496,7 +500,7 @@ class QaAuditRemediationTest < ActionDispatch::IntegrationTest
     staging_batch = {
       "batch_schema_version" => "1.0",
       "batch_id" => "staging-unapproved-p0",
-      "origin_class" => "adversarial_synthetic",
+      "origin_class" => "sanitized_historical",
       "items" => [
         {
           "source_record_key" => "rec-approved-p0",
@@ -504,14 +508,14 @@ class QaAuditRemediationTest < ActionDispatch::IntegrationTest
           "source_system" => "reviewed_export",
           "observed_at" => "2026-09-25T14:00:00Z", # newer unapproved observation
           "source_kind" => "official_employer",
-          "source_domain" => "leaked.example.com", # changed domain
-          "job_id" => "REQ-LEAKED-999", # changed job_id
+          "source_domain" => "careers.acme.example.com",
+          "job_id" => "REQ-P0",
           "title" => "UNAPPROVED PRIVATE TITLE",
           "company" => "Acme Aerospace",
           "location" => "Denver, CO",
           "salary" => { "min": 999999, "max": 999999, "currency": "USD", "period": "year" },
           "summary_excerpt" => "Confidential: reach out to private-person@example.com for private candidate details",
-          "job_url" => "https://leaked.example.com/jobs/999"
+          "job_url" => "https://careers.acme.example.com/jobs/req-p0-v2"
         }
       ]
     }
@@ -536,9 +540,8 @@ class QaAuditRemediationTest < ActionDispatch::IntegrationTest
     after_meta_json = JSON.parse(response.body)
     assert_equal baseline_meta_json, after_meta_json, "Public meta response must remain strictly invariant after staging import"
 
-    # Strict privacy canary assertions: ZERO leaks of private email or unapproved domain/title
+    # Strict privacy canary assertions: ZERO leaks of private email or unapproved title
     refute_includes after_provenance_body, "private-person@example.com", "Private canary email must NEVER appear in public provenance"
-    refute_includes after_provenance_body, "leaked.example.com", "Unapproved staging domain must not leak into approved provenance"
     refute_includes after_provenance_body, "UNAPPROVED PRIVATE TITLE", "Unapproved staging title must not leak into approved provenance"
 
     # Provenance source counts and metadata must reflect ONLY approved revisions
@@ -751,5 +754,378 @@ class QaAuditRemediationTest < ActionDispatch::IntegrationTest
     ensure
       Sanitizer.define_singleton_method(:sanitize_item, original_sanitize)
     end
+  end
+
+  # --- QA Round 3 Regressions ---
+
+  test "QA Round 3: QA3-01 legacy active release serves only historical snapshot and never exposes unapproved canary" do
+    # 1. Construct pre-migration style release without join table entries
+    legacy_release = ApprovedRelease.create!(
+      manifest_digest: "digest-legacy-unjoined",
+      approval_signature: "sig-legacy-unjoined",
+      approved_by: "legacy-operator",
+      approved_at: 10.minutes.ago,
+      corpus_version: "2026.09.1",
+      total_items: 1,
+      origin_class_counts: { "adversarial_synthetic" => 1 },
+      active: true
+    )
+
+    rec = SourceRecord.create!(
+      source_system: "reviewed_export",
+      source_record_key: "rec-legacy-key",
+      origin_class: "adversarial_synthetic",
+      approved_release_id: legacy_release.id
+    )
+
+    sm = SourceMention.create!(
+      source_record: rec,
+      mention_key: "m1",
+      source_kind: "official_employer",
+      source_domain: "careers.legacy.example.com",
+      job_id: "LEGACY-1"
+    )
+
+    base_rev = sm.source_revisions.create!(
+      revision_digest: "digest-legacy-rev1",
+      observed_at: 1.hour.ago,
+      created_at: 1.hour.ago,
+      title: "Legacy Engineer",
+      company: "Legacy Corp",
+      location: "San Jose, CA"
+    )
+
+    posting = CanonicalPosting.create!(
+      approved_release: legacy_release,
+      title: "Legacy Engineer",
+      company: "Legacy Corp",
+      location: "San Jose, CA",
+      first_observed_at: 1.hour.ago,
+      last_observed_at: 1.hour.ago
+    )
+    sm.update!(canonical_posting_id: posting.id)
+
+    # Note: approved_release_revisions is empty for legacy_release!
+    assert_equal 0, legacy_release.approved_release_revisions.count
+
+    # 2. Append unapproved conflicting revision with private canary
+    unapproved_rev = sm.source_revisions.create!(
+      revision_digest: "digest-unapproved-canary",
+      observed_at: Time.now.utc + 1.day,
+      created_at: Time.now.utc,
+      title: "LEAKED PRIVATE TITLE",
+      company: "Legacy Corp",
+      location: "San Jose, CA",
+      summary_excerpt: "Confidential private candidate info at qa3-canary@example.com"
+    )
+
+    # 3. Assert public endpoint serves only historical approved snapshot; NEVER canary
+    get "/api/v1/postings/#{posting.public_id}"
+    assert_response :success
+    posting_json = JSON.parse(response.body)
+    assert_equal "Legacy Engineer", posting_json.dig("data", "title")
+    refute_includes response.body, "qa3-canary@example.com"
+    refute_includes response.body, "LEAKED PRIVATE TITLE"
+
+    get "/api/v1/postings/#{posting.public_id}/provenance"
+    assert_response :success
+    prov_json = JSON.parse(response.body)
+    assert_equal 1, prov_json.dig("data", "source_mentions", 0, "revisions_count")
+    refute_includes response.body, "qa3-canary@example.com"
+    refute_includes response.body, "LEAKED PRIVATE TITLE"
+
+    # Direct serializer check: zero canary leaks, only historical snapshot
+    direct_prov = ProvenanceSerializer.render(posting)
+    assert_equal 1, direct_prov["source_mentions"].size
+    assert_equal 1, direct_prov["source_mentions"][0]["revisions_count"]
+    assert_equal 1, direct_prov["merge_evidence"]["total_mentions"]
+    refute_includes direct_prov.to_json, "qa3-canary@example.com"
+    refute_includes direct_prov.to_json, "LEAKED PRIVATE TITLE"
+  end
+
+  test "QA Round 3: QA3-02 changed requisition ID and domain are quarantined as identity_conflict" do
+    # 1. Base observation
+    batch1 = {
+      "batch_schema_version" => "1.0",
+      "batch_id" => "qa3-02-base",
+      "origin_class" => "adversarial_synthetic",
+      "items" => [
+        {
+          "source_record_key" => "rec-qa3-id-conflict",
+          "mention_key" => "m1",
+          "source_system" => "ats",
+          "observed_at" => "2026-10-01T12:00:00Z",
+          "source_kind" => "third_party_board",
+          "source_domain" => "careers.example.com",
+          "job_id" => "REQ-101",
+          "title" => "Platform Architect",
+          "company" => "Hooli",
+          "location" => "Mountain View, CA"
+        }
+      ]
+    }
+    report1 = BatchImporter.import_string(JSON.generate(batch1))
+    assert_equal "complete", report1.status
+
+    # 2. Re-import same timestamp and text with changed requisition ID (REQ-101 -> REQ-102)
+    batch2 = {
+      "batch_schema_version" => "1.0",
+      "batch_id" => "qa3-02-changed-id",
+      "origin_class" => "adversarial_synthetic",
+      "items" => [
+        {
+          "source_record_key" => "rec-qa3-id-conflict",
+          "mention_key" => "m1",
+          "source_system" => "ats",
+          "observed_at" => "2026-10-01T12:00:00Z",
+          "source_kind" => "third_party_board",
+          "source_domain" => "careers.example.com",
+          "job_id" => "REQ-102", # CHANGED REQUISITION ID
+          "title" => "Platform Architect",
+          "company" => "Hooli",
+          "location" => "Mountain View, CA"
+        }
+      ]
+    }
+    report2 = BatchImporter.import_string(JSON.generate(batch2))
+    assert_equal "failed", report2.status
+    assert_equal 1, report2.invalid_count
+    assert report2.errors.any? { |e| e[:error_code] == "identity_conflict" }, "Must reject changed requisition ID as identity_conflict"
+
+    # Existing mention metadata must remain unchanged
+    mention = SourceMention.find_by(mention_key: "m1", source_record: SourceRecord.find_by(source_record_key: "rec-qa3-id-conflict"))
+    assert_equal "REQ-101", mention.job_id, "Mention job_id must not be silently overwritten"
+
+    # 3. Test in-batch conflict: two items for same mention key in single unordered batch with conflicting domains
+    batch_in_batch = {
+      "batch_schema_version" => "1.0",
+      "batch_id" => "qa3-02-in-batch",
+      "origin_class" => "adversarial_synthetic",
+      "items" => [
+        {
+          "source_record_key" => "rec-qa3-in-batch",
+          "mention_key" => "m1",
+          "source_system" => "ats",
+          "observed_at" => "2026-10-01T12:00:00Z",
+          "source_kind" => "third_party_board",
+          "source_domain" => "careers.example.com",
+          "job_id" => "REQ-999",
+          "title" => "Site Reliability Engineer",
+          "company" => "Hooli",
+          "location" => "Mountain View, CA"
+        },
+        {
+          "source_record_key" => "rec-qa3-in-batch",
+          "mention_key" => "m1",
+          "source_system" => "ats",
+          "observed_at" => "2026-10-01T12:00:00Z",
+          "source_kind" => "third_party_board",
+          "source_domain" => "board.example.com", # CONFLICTING DOMAIN
+          "job_id" => "REQ-999",
+          "title" => "Site Reliability Engineer",
+          "company" => "Hooli",
+          "location" => "Mountain View, CA"
+        }
+      ]
+    }
+    report_in_batch = BatchImporter.import_string(JSON.generate(batch_in_batch))
+    assert_equal "failed", report_in_batch.status
+    assert_equal 2, report_in_batch.invalid_count
+    assert report_in_batch.errors.any? { |e| e[:error_code] == "identity_conflict" }
+  end
+
+  test "QA Round 3: QA3-03 reused source identity rejects cross-origin reuse" do
+    # 1. Import sanitized_historical source
+    hist_batch = {
+      "batch_schema_version" => "1.0",
+      "batch_id" => "qa3-03-hist",
+      "origin_class" => "sanitized_historical",
+      "items" => [
+        {
+          "source_record_key" => "rec-qa3-03-key",
+          "mention_key" => "m1",
+          "source_system" => "reviewed_export",
+          "origin_class" => "sanitized_historical",
+          "observed_at" => "2026-09-01T10:00:00Z",
+          "source_kind" => "official_employer",
+          "source_domain" => "careers.initech.example.com",
+          "job_id" => "REQ-HIST-1",
+          "title" => "Database Engineer",
+          "company" => "Initech",
+          "location" => "Austin, TX"
+        }
+      ]
+    }
+    hist_report = BatchImporter.import_string(JSON.generate(hist_batch))
+    assert_equal "complete", hist_report.status
+
+    rec = SourceRecord.find_by(source_system: "reviewed_export", source_record_key: "rec-qa3-03-key")
+    assert_equal "sanitized_historical", rec.origin_class
+
+    # 2. Attempt to reuse same (system, key) with adversarial_synthetic
+    synth_batch = {
+      "batch_schema_version" => "1.0",
+      "batch_id" => "qa3-03-synth",
+      "origin_class" => "adversarial_synthetic",
+      "items" => [
+        {
+          "source_record_key" => "rec-qa3-03-key",
+          "mention_key" => "m1",
+          "source_system" => "reviewed_export",
+          "origin_class" => "adversarial_synthetic", # CONFLICTING ORIGIN CLASS
+          "observed_at" => "2026-10-01T10:00:00Z",
+          "source_kind" => "official_employer",
+          "source_domain" => "careers.initech.example.com",
+          "job_id" => "REQ-HIST-1",
+          "title" => "Database Engineer",
+          "company" => "Initech",
+          "location" => "Austin, TX"
+        }
+      ]
+    }
+    synth_report = BatchImporter.import_string(JSON.generate(synth_batch))
+    assert_equal "failed", synth_report.status
+    assert_equal 1, synth_report.invalid_count
+    assert synth_report.errors.any? { |e| e[:error_code] == "origin_class_conflict" }
+
+    # SourceRecord origin_class must remain strictly historical
+    rec.reload
+    assert_equal "sanitized_historical", rec.origin_class
+  end
+
+  test "QA Round 3: QA3-04 same-title shared URLs with differing locations or department pages remain separate" do
+    # Case A: Same employer, same title, DIFFERENT locations, shared role URL -> Keep separate
+    loc_batch = {
+      "batch_schema_version" => "1.0",
+      "batch_id" => "qa3-04-loc-batch",
+      "origin_class" => "adversarial_synthetic",
+      "items" => [
+        {
+          "source_record_key" => "rec-qa4-loc-denver",
+          "mention_key" => "m1",
+          "source_system" => "board_1",
+          "observed_at" => "2026-09-20T10:00:00Z",
+          "source_kind" => "third_party_board",
+          "title" => "Staff Cloud Architect",
+          "company" => "Echo Corp",
+          "location" => "Denver, CO",
+          "job_url" => "https://careers.echocorp.example.com/jobs/staff-cloud-architect"
+        },
+        {
+          "source_record_key" => "rec-qa4-loc-austin",
+          "mention_key" => "m1",
+          "source_system" => "board_2",
+          "observed_at" => "2026-09-20T10:00:00Z",
+          "source_kind" => "third_party_board",
+          "title" => "Staff Cloud Architect",
+          "company" => "Echo Corp",
+          "location" => "Austin, TX", # DIFFERENT LOCATION
+          "job_url" => "https://careers.echocorp.example.com/jobs/staff-cloud-architect"
+        }
+      ]
+    }
+
+    report_loc = BatchImporter.import_string(JSON.generate(loc_batch))
+    assert_equal "complete", report_loc.status
+
+    postings_loc = CanonicalPosting.where(company: "Echo Corp", title: "Staff Cloud Architect")
+    assert_equal 2, postings_loc.count, "Same-title shared-URL jobs in different locations must NEVER auto-merge"
+
+    dupes_loc = PotentialDuplicate.where(posting_a: postings_loc).or(PotentialDuplicate.where(posting_b: postings_loc))
+    assert dupes_loc.exists?
+    assert dupes_loc.any? { |d| d.reason_code == "shared_url_differing_locations" }
+
+    # Case B: Same employer, same title, same location, but shared path is an unverified department landing page
+    dept_batch = {
+      "batch_schema_version" => "1.0",
+      "batch_id" => "qa3-04-dept-batch",
+      "origin_class" => "adversarial_synthetic",
+      "items" => [
+        {
+          "source_record_key" => "rec-qa4-dept-1",
+          "mention_key" => "m1",
+          "source_system" => "board_1",
+          "observed_at" => "2026-09-20T10:00:00Z",
+          "source_kind" => "third_party_board",
+          "title" => "Principal Systems Engineer",
+          "company" => "Echo Corp",
+          "location" => "San Jose, CA",
+          "job_url" => "https://careers.echocorp.example.com/departments/engineering"
+        },
+        {
+          "source_record_key" => "rec-qa4-dept-2",
+          "mention_key" => "m1",
+          "source_system" => "board_2",
+          "observed_at" => "2026-09-20T10:00:00Z",
+          "source_kind" => "third_party_board",
+          "title" => "Principal Systems Engineer",
+          "company" => "Echo Corp",
+          "location" => "San Jose, CA",
+          "job_url" => "https://careers.echocorp.example.com/departments/engineering" # DEPARTMENT LANDING PAGE
+        }
+      ]
+    }
+
+    report_dept = BatchImporter.import_string(JSON.generate(dept_batch))
+    assert_equal "complete", report_dept.status
+
+    postings_dept = CanonicalPosting.where(company: "Echo Corp", title: "Principal Systems Engineer")
+    assert_equal 2, postings_dept.count, "Department landing page URLs without unique listing tokens must NEVER auto-merge"
+
+    dupes_dept = PotentialDuplicate.where(posting_a: postings_dept).or(PotentialDuplicate.where(posting_b: postings_dept))
+    assert dupes_dept.exists?
+    assert dupes_dept.any? { |d| d.reason_code == "shared_url_ambiguous_role_page" }
+  end
+
+  test "QA Round 3: QA3-05 and QA3-06 versioned release-bound authority and exact-byte digest semantics" do
+    # QA3-05: Source authority fingerprinting
+    fp = SourceAuthority.authority_fingerprint
+    assert_not_nil fp
+    assert_equal 64, fp.length
+
+    # Publish release and assert authority_fingerprint bound into release and provenance
+    cand = {
+      "batch_schema_version" => "1.0",
+      "batch_id" => "qa3-05-batch",
+      "origin_class" => "adversarial_synthetic",
+      "items" => [
+        {
+          "source_record_key" => "rec-qa3-05",
+          "mention_key" => "m1",
+          "source_system" => "ats",
+          "observed_at" => "2026-10-01T10:00:00Z",
+          "source_kind" => "official_employer",
+          "source_domain" => "careers.acme.example.com",
+          "job_id" => "REQ-QA3-05",
+          "title" => "Autonomous Systems Director",
+          "company" => "Acme Aerospace",
+          "location" => "Denver, CO"
+        }
+      ]
+    }
+    cand_json = JSON.generate(cand)
+    manifest = ReleaseGate.build_manifest(cand_json, approved_by: "qa-auditor", corpus_version: "2026.10.3")
+    res = ApprovedReleaseManager.new.publish!(cand_json, JSON.generate(manifest))
+    assert res.success
+
+    release = res.approved_release
+    assert_equal fp, release.authority_fingerprint
+
+    posting = CanonicalPosting.find_by(title: "Autonomous Systems Director")
+    assert_not_nil posting
+    prov = ProvenanceSerializer.render(posting)
+    assert_equal fp, prov["merge_evidence"]["authority_fingerprint"]
+
+    # QA3-06: Exact byte vs normalized text digest semantics
+    raw_str = '{"test": 123}'
+    padded_str = '{"test": 123}   '
+
+    # Exact byte digest distinguishes trailing whitespace
+    refute_equal ReleaseGate.compute_digest(raw_str, algorithm: "sha256-exact"),
+                 ReleaseGate.compute_digest(padded_str, algorithm: "sha256-exact")
+
+    # Normalized text digest matches trimmed content
+    assert_equal ReleaseGate.compute_digest(raw_str, algorithm: "sha256-normalized-text"),
+                 ReleaseGate.compute_digest(padded_str, algorithm: "sha256-normalized-text")
   end
 end

@@ -81,6 +81,20 @@ class SourceAuthority
     @verified_records_map ||= load_authority_config["records"] || DEFAULT_VERIFIED_RECORDS
   end
 
+  def self.authority_fingerprint
+    config = load_authority_config
+    if config.present? && config.any?
+      Digest::SHA256.hexdigest(config.to_yaml)
+    else
+      Digest::SHA256.hexdigest("#{DEFAULT_VERIFIED_DOMAINS.to_yaml}#{DEFAULT_VERIFIED_RECORDS.to_yaml}")
+    end
+  end
+
+  def self.reset_cache!
+    @verified_domains_map = nil
+    @verified_records_map = nil
+  end
+
   def self.load_authority_config
     config_file = Rails.root.join("config", "source_authority.yml")
     return {} unless File.exist?(config_file)

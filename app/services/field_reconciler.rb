@@ -17,7 +17,7 @@ class FieldReconciler
   end
 
   def reconcile!
-    revisions_scope = if @posting.approved_release_id.present?
+    revisions_scope = if @posting.approved_release_id.present? && @posting.approved_release&.approved_release_revisions&.exists?
       @posting.approved_revisions
     else
       SourceRevision.joins(source_mention: :source_record)

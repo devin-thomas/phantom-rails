@@ -160,7 +160,7 @@ class IdentityResolver
     candidates.select do |p|
       scope.where(id: p.id).exists? &&
         !has_conflicting_identifiers?(mention, rev, p) &&
-        tier2_compatible_titles_or_requisition?(mention, rev, p)
+        tier2_strong_match?(mention, rev, p, clean_url)
     end
   end
 
@@ -216,18 +216,50 @@ class IdentityResolver
     false
   end
 
-  def tier2_compatible_titles_or_requisition?(mention, rev, candidate_posting)
+  def tier2_strong_match?(mention, rev, candidate_posting, clean_url)
     cand_job_ids = candidate_posting.source_mentions.pluck(:job_id).compact.map(&:strip).reject(&:empty?).uniq
-    # If they share an explicit verified job requisition ID, titles may vary (e.g. level prefix)
-    if mention.job_id.present? && cand_job_ids.include?(mention.job_id.strip)
-      return true
-    end
+    has_shared_req = mention.job_id.present? && cand_job_ids.include?(mention.job_id.strip)
 
-    # Without a shared explicit requisition ID, titles MUST match
+    # If they share an explicit verified job requisition ID, title/location variants may merge
+    return true if has_shared_req
+
+    # Without a shared explicit requisition ID:
+    # 1. Titles MUST match exactly
     norm_rev_title = normalize_title_for_comparison(rev.title)
     norm_cand_title = normalize_title_for_comparison(candidate_posting.title)
+    return false if norm_rev_title != norm_cand_title
 
-    norm_rev_title == norm_cand_title
+    # 2. Locations MUST match exactly (differing locations indicate distinct openings)
+    norm_rev_loc = rev.location.to_s.strip.downcase
+    norm_cand_loc = candidate_posting.location.to_s.strip.downcase
+    return false if norm_rev_loc.present? && norm_cand_loc.present? && norm_rev_loc != norm_cand_loc
+
+    # 3. URL must be a vetted specific job listing pattern (not a department landing page or shared role page)
+    return false unless vetted_job_url_pattern?(clean_url)
+
+    true
+  end
+
+  def vetted_job_url_pattern?(url)
+    return false unless specific_job_url?(url)
+    uri = URI.parse(url) rescue nil
+    return false unless uri
+
+    path = uri.path.to_s.sub(/\/$/, "").downcase
+
+    # Reject department / team / category / organization landing pages
+    department_keywords = %w[
+      departments teams groups categories divisions business-units
+      engineering product design sales marketing finance legal operations people hr
+    ]
+    path_segments = path.split("/").reject(&:blank?)
+
+    return false if (path_segments & %w[departments teams groups categories divisions business-units roles]).any?
+    return false if path_segments.length == 1 && department_keywords.include?(path_segments.first)
+    return false if path_segments.length == 2 && %w[careers jobs openings positions].include?(path_segments.first) &&
+                    %w[engineering product design sales marketing finance legal operations people hr all general].include?(path_segments.second)
+
+    true
   end
 
   def normalize_title_for_comparison(title)
@@ -236,7 +268,9 @@ class IdentityResolver
 
   def specific_job_url?(url)
     return false unless url.present?
-    uri = URI.parse(url)
+    uri = URI.parse(url) rescue nil
+    return false unless uri
+
     path = uri.path.to_s.sub(/\/$/, "").downcase
     return false if path.blank?
 
@@ -257,9 +291,10 @@ class IdentityResolver
   def check_and_record_potential_duplicates(posting)
     posting.reload if posting.persisted?
     norm_company = posting.company.strip.downcase
-    norm_title = posting.title.strip.downcase
+    norm_title = normalize_title_for_comparison(posting.title)
+    norm_loc = posting.location.strip.downcase
 
-    # Check 1: Same company & shared job_url but differing titles (prevented Tier 2 merge)
+    # Check 1: Same company & shared job_url (where strong Tier 2 merge was not performed)
     posting_urls = posting.source_revisions.pluck(:job_url).compact.map { |u| Sanitizer.clean_url(u) }.reject(&:blank?).uniq
     if posting_urls.any?
       url_postings = CanonicalPosting.joins(source_mentions: :source_revisions)
@@ -268,10 +303,21 @@ class IdentityResolver
                                      .where(source_revisions: { job_url: posting_urls })
                                      .distinct
       url_postings.find_each do |other|
+        other_title = normalize_title_for_comparison(other.title)
+        other_loc = other.location.strip.downcase
+
+        reason = if norm_title != other_title
+          "shared_url_differing_titles"
+        elsif norm_loc != other_loc
+          "shared_url_differing_locations"
+        else
+          "shared_url_ambiguous_role_page"
+        end
+
         PotentialDuplicate.record_pair!(
           posting,
           other,
-          reason_code: "shared_url_differing_titles",
+          reason_code: reason,
           evaluation_digest: "tier4-shared-url-divergent"
         )
       end
@@ -280,15 +326,14 @@ class IdentityResolver
     # Check 2: Similar company & title/location without strong ID
     similar_postings = CanonicalPosting.where.not(id: posting.id)
                                        .where("LOWER(company) = ?", norm_company)
-                                       .where("LOWER(title) = ? OR LOWER(location) = ?", norm_title, posting.location.strip.downcase)
+                                       .where("LOWER(title) = ? OR LOWER(location) = ?", posting.title.strip.downcase, norm_loc)
 
     similar_postings.find_each do |other|
-      # Verify they don't share a strong key
       shared_job_ids = (posting.source_mentions.pluck(:job_id) & other.source_mentions.pluck(:job_id)).compact.reject(&:empty?)
       if shared_job_ids.empty?
         a_id, b_id = [posting.id, other.id].sort
         existing = PotentialDuplicate.find_by(posting_a_id: a_id, posting_b_id: b_id)
-        unless existing&.reason_code == "shared_url_differing_titles"
+        unless existing&.reason_code&.start_with?("shared_url_")
           PotentialDuplicate.record_pair!(
             posting,
             other,

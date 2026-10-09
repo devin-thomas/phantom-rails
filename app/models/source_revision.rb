@@ -11,8 +11,15 @@ class SourceRevision < ApplicationRecord
   validates :location, presence: true
 
   def self.compute_digest(attrs)
-    # Canonical string representation of fields
+    # Canonical string representation of observation and identity fields (contract v2)
     canonical_str = [
+      attrs["source_system"],
+      attrs["source_record_key"],
+      attrs["mention_key"],
+      attrs["origin_class"],
+      attrs["source_kind"],
+      attrs["source_domain"],
+      attrs["job_id"],
       attrs["observed_at"],
       attrs["posted_at"],
       attrs["title"],

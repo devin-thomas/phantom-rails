@@ -90,14 +90,24 @@ class BatchImporter
     grouped.each do |key, items_for_key|
       if items_for_key.size > 1
         digests = items_for_key.map { |i| SourceRevision.compute_digest(i) }.uniq
-        if digests.size > 1
-          # Ambiguous revision order in unordered batch: quarantine all items for this key
-          items_for_key.each_with_index do |item, offset|
+        identity_metadata = items_for_key.map { |i| [i["source_domain"].to_s.strip, i["job_id"].to_s.strip] }.uniq
+        origin_classes = items_for_key.map { |i| i["origin_class"].to_s.strip }.uniq
+
+        if origin_classes.size > 1 || identity_metadata.size > 1 || digests.size > 1
+          error_code = if origin_classes.size > 1
+            "origin_class_conflict"
+          elsif identity_metadata.size > 1
+            "identity_conflict"
+          else
+            "ambiguous_revision_order"
+          end
+
+          items_for_key.each do |item|
             invalid_errors << {
               item_index: item["_batch_index"] || parsed.valid_items.index(item),
               item_identifier: "#{item['source_record_key']}/#{item['mention_key']}",
-              error_code: "ambiguous_revision_order",
-              error_message: "Conflicting revisions for same mention key within single unordered batch"
+              error_code: error_code,
+              error_message: "Conflicting #{error_code} for same mention key within single unordered batch"
             }
           end
           next
@@ -133,6 +143,17 @@ class BatchImporter
           r.origin_class = item["origin_class"]
         end
 
+        # QA3-03: Reject cross-origin reuse of existing source record
+        if rec.origin_class.present? && item["origin_class"].present? && rec.origin_class != item["origin_class"]
+          invalid_errors << {
+            item_index: raw_item["_batch_index"] || -1,
+            item_identifier: "#{item['source_record_key']}/#{item['mention_key']}",
+            error_code: "origin_class_conflict",
+            error_message: "Source record #{item['source_system']}:#{item['source_record_key']} origin class conflict: existing '#{rec.origin_class}' vs incoming '#{item['origin_class']}'"
+          }
+          next
+        end
+
         mention = SourceMention.find_or_create_by!(
           source_record: rec,
           mention_key: item["mention_key"]
@@ -142,9 +163,24 @@ class BatchImporter
           m.job_id = item["job_id"]
         end
 
-        # Update metadata if newer and not part of an approved posting
+        # QA3-02: Quarantine conflicting identity metadata for existing mention
+        has_domain_conflict = mention.source_domain.present? && item["source_domain"].present? && mention.source_domain != item["source_domain"]
+        has_job_id_conflict = mention.job_id.present? && item["job_id"].present? && mention.job_id != item["job_id"]
+
+        if has_domain_conflict || has_job_id_conflict
+          invalid_errors << {
+            item_index: raw_item["_batch_index"] || -1,
+            item_identifier: "#{item['source_record_key']}/#{item['mention_key']}",
+            error_code: "identity_conflict",
+            error_message: "Conflicting identity metadata for mention #{item['mention_key']}: existing (domain=#{mention.source_domain}, job_id=#{mention.job_id}) vs incoming (domain=#{item['source_domain']}, job_id=#{item['job_id']})"
+          }
+          next
+        end
+
+        # If existing mention lacked domain or job_id, backfill it safely unless approved
         unless mention.canonical_posting&.approved_release_id.present?
-          mention.update!(source_domain: item["source_domain"], job_id: item["job_id"]) if item["job_id"].present?
+          mention.update!(source_domain: item["source_domain"]) if mention.source_domain.blank? && item["source_domain"].present?
+          mention.update!(job_id: item["job_id"]) if mention.job_id.blank? && item["job_id"].present?
         end
 
         rev_digest = SourceRevision.compute_digest(item)

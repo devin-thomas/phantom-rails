@@ -384,31 +384,38 @@
 
 ## Post-Audit QA Remediation & Hardening (October 9, 2026)
 
-Following an independent QA code audit, the following critical guarantees were hardened with dedicated regression tests in `test/integration/qa_audit_remediation_test.rb`:
+Following independent QA code audits, the following guarantees and protections were sequentially hardened with dedicated regression tests in `test/integration/qa_audit_remediation_test.rb`:
 
-1. **GitHub Actions CI Permissions (P0 Blocker Resolved):**
-   - Tracked all `bin/*` scripts with executable bit `100755` in the Git tree (`git update-index --chmod=+x bin/*`).
-   - Hardened `.github/workflows/ci.yml` to explicitly run `chmod +x bin/*` and invoke scripts via Ruby (`ruby bin/brakeman`, `ruby bin/rails`, `ruby bin/verify`).
+### Round 1 Audit Remediations
+1. **GitHub Actions CI Permissions (P0):** Tracked `bin/*` scripts with executable bit `100755` in the Git tree; CI workflow invokes scripts via Ruby.
+2. **Public Data Isolation (P0):** Blocked unapproved staging imports for an existing mention from mutating active approved canonical postings or field selections.
+3. **Provenance Privacy Filter (P0):** `ProvenanceSerializer` filters potential duplicates and source mentions to active approved records.
+4. **Composite Key Matching (P1):** `ApprovedReleaseManager` scopes records via composite `[source_system, source_record_key]`.
+5. **Conservative Identity Resolver Hardening (P1):** Enforces employer identity normalization and rejects conflicting requisition IDs (`REQ-101` vs `REQ-102`).
+6. **Release Gate Invariants (P1):** Candidate batches must be 100% valid; in-batch duplicate accounting verified.
 
-2. **Public Data Isolation & Approved Release Immutability (P0 Resolved):**
-   - **Staging Mutation Barrier:** In `IdentityResolver` and `FieldReconciler`, unapproved staging imports for a mention belonging to an approved posting are strictly blocked from calling `FieldReconciler.reconcile!` or mutating the approved posting's `title`, `salary`, `search_vector`, or `field_selections`.
-   - **Provenance Privacy Filter:** `ProvenanceSerializer` now filters `potential_duplicates` and `source_mentions` to only include active approved records (`CanonicalPosting.active_approved`). Unapproved staging postings can never leak identifying details through public provenance responses.
-   - **Composite Key Matching:** `ApprovedReleaseManager` now scopes source records using composite `[source_system, source_record_key]` pairs rather than `source_record_key` alone.
+### Round 2 Audit Remediations
+1. **Explicit Approved Revision Memberships (`ApprovedReleaseRevision` join table):**
+   - Created `approved_release_revisions` to capture snapshot source domain, job ID, and origin class at publication time.
+   - Proved byte-invariance and zero canary leaks on approved public posting and provenance endpoints after subsequent staging imports against the same source key.
+2. **Domain/Record Allowlist for Official Authority:** Explicit allowlist configuration and verification ensuring unverified domains cannot claim official employer status.
+3. **Generic Job URL Merge Denylist:** Generic path denylist prevents merging unrelated roles sharing root careers URLs.
 
-3. **Conservative Duplicate Resolution Hardening (P1 Resolved):**
-   - **Employer Identity Enforcement:** Tier 2 (job URL) and Tier 3 (platform ID) matching now enforce strict normalized employer matching (`candidate.company == rev.company`). Different employers sharing a generic URL or platform ID are never merged.
-   - **Conflicting Requisition IDs:** Conflicting employer requisition IDs (e.g. `REQ-101` vs `REQ-102`) or incompatible URLs return `:identity_conflict` and strictly prevent merging.
-
-4. **Source Authority Verification (P1 Resolved):**
-   - Implemented `SourceAuthority` service (`app/services/source_authority.rb`) distinguishing claimed `source_kind` from operator-verified authority.
-   - Third parties claiming `source_kind: "official_employer"` on unverified domains are treated as untrusted and cannot trigger `verified_official_override`.
-
-5. **Release Gate & Accounting Invariants (P1 Resolved):**
-   - `ReleaseGate.evaluate` and `ApprovedReleaseManager.publish!` now strictly reject any candidate batch containing invalid items (must be 100% valid; partial status rejected for release).
-   - `BatchImporter` now correctly counts in-batch collapsed duplicate items as `unchanged_count`, guaranteeing the invariant: `total_input == inserted + updated + unchanged + invalid`.
-   - `schemas/public-release-v1.schema.json` explicitly documents `approval_signature` as an operator-verified checksum confirmation token.
-
-6. **Clean-Database Baseline Verification (P2 Resolved):**
-   - Clean database baseline initialized from `approved-batch-v1.json` (5 source items) produces exactly **4 active approved canonical postings** (Items 1 & 2 merged under Tier 1, Items 4 & 5 linked as Tier 4 potential duplicates).
-   - Automated suite expanded to **93 tests, 521 assertions, 0 failures, 0 errors, 0 skips**.
-   - Single-command verifier `bin/verify` enforces the exact 4-posting baseline and exits with Code 0.
+### Round 3 Audit Remediations
+1. **QA3-01: Legacy Active Release Safe Fallback & Fail-Closed Protection (P0/P1):**
+   - Migration `HardenApprovedReleasesAndRevisions` deactivates legacy releases without `approved_release_revisions` entries.
+   - Runtime fallback: `CanonicalPosting#approved_revisions` and `ProvenanceSerializer#render_mentions` fall back safely to revisions created/observed at or before approval time (`approved_at`), completely isolating unapproved staging additions and guaranteeing zero canary or private identifier leaks.
+2. **QA3-02: Identity and Origin Metadata Bound to Revision Digest (P1):**
+   - `SourceRevision.compute_digest` includes `source_system`, `source_record_key`, `mention_key`, `origin_class`, `source_kind`, `source_domain`, and `job_id`.
+   - `BatchImporter` quarantines conflicting mention metadata (changed `job_id` or `source_domain`) as `identity_conflict` rather than silently mutating existing mentions.
+3. **QA3-03: Cross-Origin Source Identity Reuse Rejection (P1):**
+   - `BatchImporter` rejects cross-origin reuse with an `origin_class_conflict` error when an incoming item's `origin_class` differs from existing `SourceRecord#origin_class`, preventing synthetic data from assuming historical identity.
+4. **QA3-04: Same-Employer, Same-Title Multi-Opening Protection (P1):**
+   - Tier 2 strong matching (`tier2_strong_match?`) requires matching normalized locations and rejects unvetted department/category landing pages (`vetted_job_url_pattern?`).
+   - Distinct openings sharing general URLs record `shared_url_differing_locations` and `shared_url_ambiguous_role_page` potential duplicates without collapsing.
+5. **QA3-05: Versioned Release-Bound Source Authority (P2):**
+   - Committed `config/source_authority.yml` with version `1.0.0` and operator verification rules.
+   - Calculated `SourceAuthority.authority_fingerprint` (SHA-256) and bound it to `ApprovedRelease#authority_fingerprint`, `ApprovedReleaseManager.current_revision`, and `ProvenanceSerializer` merge evidence.
+6. **QA3-06: Digest Semantics & Evidence Documentation (P2):**
+   - `ReleaseGate` supports exact-byte SHA-256 (`sha256-exact`, default) and normalized text SHA (`sha256-normalized-text`).
+   - Fully qualified test suite: **103 tests, 615 assertions, 0 failures, 0 errors, 0 skips**. All verification gates pass in `bin/verify`.

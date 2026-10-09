@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_09_130100) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_09_140000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -21,6 +21,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_09_130100) do
     t.string "snapshot_job_id"
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
+    t.string "snapshot_origin_class"
     t.index ["approved_release_id", "source_revision_id"], name: "idx_on_approved_release_and_revision_unique", unique: true
     t.index ["approved_release_id"], name: "index_approved_release_revisions_on_approved_release_id"
     t.index ["source_revision_id"], name: "index_approved_release_revisions_on_source_revision_id"
@@ -37,6 +38,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_09_130100) do
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
     t.jsonb "origin_class_counts", default: {}, null: false
+    t.string "authority_fingerprint"
     t.index ["active"], name: "index_approved_releases_on_active"
     t.index ["manifest_digest"], name: "index_approved_releases_on_manifest_digest", unique: true
   end

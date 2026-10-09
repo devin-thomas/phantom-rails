@@ -1,9 +1,13 @@
 class PostingSerializer
   def self.render_one(posting, score: nil)
     origin_class = if posting.approved_release_id.present?
-      posting.approved_revisions.first&.source_mention&.source_record&.origin_class ||
-        posting.source_mentions.first&.source_record&.origin_class ||
-        "adversarial_synthetic"
+      first_rev = posting.approved_revisions.first
+      if first_rev
+        app_rev = ApprovedReleaseRevision.find_by(approved_release_id: posting.approved_release_id, source_revision_id: first_rev.id)
+        app_rev&.snapshot_origin_class.presence || first_rev.source_mention&.source_record&.origin_class || "adversarial_synthetic"
+      else
+        posting.source_mentions.first&.source_record&.origin_class || "adversarial_synthetic"
+      end
     else
       posting.source_mentions.first&.source_record&.origin_class || "adversarial_synthetic"
     end

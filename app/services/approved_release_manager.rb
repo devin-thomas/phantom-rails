@@ -11,7 +11,7 @@ class ApprovedReleaseManager
     active = ApprovedRelease.active.first
     return nil unless active
 
-    Digest::SHA256.hexdigest("#{active.manifest_digest}|#{active.corpus_version}|#{active.canonical_postings.count}")
+    Digest::SHA256.hexdigest("#{active.manifest_digest}|#{active.corpus_version}|#{active.canonical_postings.count}|#{active.authority_fingerprint}")
   end
 
   def publish!(batch_content, manifest_content)
@@ -45,7 +45,8 @@ class ApprovedReleaseManager
         approved_at: Time.iso8601(manifest["approved_at"]),
         corpus_version: manifest["corpus_version"],
         total_items: manifest["total_items"],
-        origin_class_counts: manifest["origin_class_counts"] || {}
+        origin_class_counts: manifest["origin_class_counts"] || {},
+        authority_fingerprint: SourceAuthority.authority_fingerprint
       )
       release.save!
 
@@ -72,6 +73,7 @@ class ApprovedReleaseManager
         app_rev = release.approved_release_revisions.find_or_initialize_by(source_revision_id: rev.id)
         app_rev.snapshot_source_domain = item["source_domain"]
         app_rev.snapshot_job_id = item["job_id"]
+        app_rev.snapshot_origin_class = item["origin_class"] || rec.origin_class
         app_rev.save!
       end
 

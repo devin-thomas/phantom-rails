@@ -1,0 +1,32 @@
+authority_rules_version: "1.0.0"
+approved_by: "devin-thomas"
+updated_at: "2026-10-09T16:00:00Z"
+domains:
+  "acme aerospace":
+    - "careers.acme.example.com"
+    - "acme.example.com"
+  "globex software":
+    - "careers.globex.com"
+    - "globex.example.com"
+  "initech":
+    - "careers.initech.example.com"
+    - "initech.example.com"
+  "hooli":
+    - "careers.hooli.example.com"
+    - "hooli.example.com"
+  "echo corp":
+    - "careers.echocorp.example.com"
+    - "echocorp.example.com"
+  "apex telecom":
+    - "careers.apextelecom.example.com"
+    - "apextelecom.example.com"
+  "alpha shield":
+    - "careers.alphashield.example.com"
+    - "alphashield.example.com"
+records:
+  "acme aerospace":
+    - "rec-official-acme"
+  "echo corp":
+    - "rec_03"
+  "alpha shield":
+    - "rec_04"
