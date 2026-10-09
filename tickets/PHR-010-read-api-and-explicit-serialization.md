@@ -1,6 +1,6 @@
 # PHR-010 — API v1 details and safe errors
 
-**Status:** Not started  
+**Status:** Complete  
 **Lane:** Core engineering / qualification  
 **Dependencies:** PHR-009
 
@@ -11,15 +11,15 @@ Expose resource listing, detail, metadata and health without leaking unapproved 
 ## Scope
 
 - GET routes for `/api/v1/postings`, detail, meta and health; versioned response envelopes with stable public IDs and origin labels.
-- - Explicit allowlisted serializers, safe 404/400/503 errors and request IDs, zero anonymous write routes.
-- - Documented response syntax and request specs; all outputs sourced from the active approved projection.
+- Explicit allowlisted serializers, safe 404/400/503 errors and request IDs, zero anonymous write routes.
+- Documented response syntax and request specs; all outputs sourced from the active approved projection.
 
 ## Acceptance Criteria
 
-- [ ] Known ID returns normalized metadata, origin class and safe links; missing ID returns 404 without stack trace.
-- [ ] Every public response and error passes the serializer allowlist/PII canary scan.
-- [ ] Public mutation methods fail without state changes; no hidden admin API is shipped.
-- [ ] DB offline returns safe unavailable response instead of fabricated or stale mock results.
+- [x] Known ID returns normalized metadata, origin class and safe links; missing ID returns 404 without stack trace.
+- [x] Every public response and error passes the serializer allowlist/PII canary scan.
+- [x] Public mutation methods fail without state changes; no hidden admin API is shipped.
+- [x] DB offline returns safe unavailable response instead of fabricated or stale mock results.
 
 ## Test / Evidence
 

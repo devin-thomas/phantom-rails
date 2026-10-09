@@ -175,10 +175,20 @@
   4 runs, 16 assertions, 0 failures, 0 errors, 0 skips
   ```
 
-
-
-
-
-
-
-
+### PHR-010 — API v1 Read Surface and Safe Error Handling
+- **Controllers & Serializers:**
+  - `app/controllers/application_controller.rb`
+  - `app/controllers/api/v1/postings_controller.rb`
+  - `app/controllers/api/v1/meta_controller.rb`
+  - `app/controllers/api/v1/health_controller.rb`
+  - `app/serializers/posting_serializer.rb`
+- **Verified Behaviors:**
+  - Read-Only Enforcement: Public mutation methods (POST, PUT, PATCH, DELETE) fail with 405 Method Not Allowed (`code: "method_not_allowed"`) and cause zero state mutation.
+  - Active Approved Projection: Unapproved staging postings return 404 and are excluded from search listings; only active approved postings are exposed.
+  - Serializer Allowlist: Zero internal database integer IDs, search vectors, or raw fields leak. All responses pass PrivacyScanner checks.
+  - Safe Error Envelopes: Consistent `{"error": {"code": "...", "message": "...", "request_id": "..."}}` envelopes for 400 (`invalid_parameter`), 404 (`not_found`), 405 (`method_not_allowed`), and 503 (`service_unavailable`).
+- **Test Output:**
+  ```text
+  bin/rails test test/controllers/api/v1/postings_controller_test.rb
+  9 runs, 66 assertions, 0 failures, 0 errors, 0 skips
+  ```

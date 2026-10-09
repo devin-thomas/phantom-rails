@@ -8,10 +8,21 @@ class PrivacyScanner
   HTML_TAG_REGEX = /<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>|<img\b[^>]*onerror/i
   SSN_REGEX = /\b\d{3}-\d{2}-\d{4}\b/
 
-  ScanResult = Struct.new(:passed, :violations, keyword_init: true)
+  ScanResult = Struct.new(:passed, :violations, keyword_init: true) do
+    def clean?
+      passed
+    end
+  end
 
   def self.scan_batch(items)
     new.scan(items)
+  end
+
+  def self.scan_string(str)
+    violations = []
+    scanner = new
+    scanner.send(:check_string, str, path: "string", item_id: "raw", violations: violations)
+    ScanResult.new(passed: violations.empty?, violations: violations)
   end
 
   def scan(items)
