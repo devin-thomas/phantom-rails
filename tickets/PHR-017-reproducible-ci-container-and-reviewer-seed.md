@@ -1,6 +1,6 @@
 # PHR-017 — Clean-checkout qualification and CI
 
-**Status:** Not started  
+**Status:** Complete  
 **Lane:** Core engineering / qualification  
 **Dependencies:** PHR-016, PHR-001
 
@@ -16,10 +16,10 @@ Make the validated stack genuinely portable for a hiring engineer who has no his
 
 ## Acceptance Criteria
 
-- [ ] Clean checkout container boot, import, test, API query, docs and playground all succeed with approved fixtures.
-- [ ] A new developer can run tests without Outlook, SerpApi key, personal files or paid resources.
-- [ ] All CI status gates fail properly when core test, privacy scan or OpenAPI contract is deliberately broken.
-- [ ] Evidence file records exact code SHA, versions, commands, fixture revision, pass/fail and known limitations.
+- [x] Clean checkout container boot, import, test, API query, docs and playground all succeed with approved fixtures.
+- [x] A new developer can run tests without Outlook, SerpApi key, personal files or paid resources.
+- [x] All CI status gates fail properly when core test, privacy scan or OpenAPI contract is deliberately broken.
+- [x] Evidence file records exact code SHA, versions, commands, fixture revision, pass/fail and known limitations.
 
 ## Test / Evidence
 

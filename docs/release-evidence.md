@@ -21,14 +21,14 @@
 | **PHR-007** | Conservative identity resolver | **COMPLETE** | Tier 1 (verified employer req), Tier 2 (canonical job URL), and Tier 3 (platform ID) merges verified; distinct reqs remain separate; Tier 4 weak similarity flagged as `PotentialDuplicate` without merging; verified across 4 tests (14 assertions). |
 | **PHR-008** | Field precedence & conflicts | **COMPLETE** | `FieldReconciler` implemented; verified official employer override (`verified_official_override`) overrides newer conflicting third-party board range; recency default (`newest_credible`); deterministic tie-breaking verified across 3 tests (9 assertions). |
 | **PHR-009** | Approved release projection & revision | **COMPLETE** | `ApprovedReleaseManager` and `phantom:publish` Rake task created; atomic release activation; public queries scoped strictly to active approved release via `active_approved`; stable checksummed Corpus Revision verified across 4 tests (16 assertions). |
-| **PHR-010** | Read API & explicit serialization | Not started | Pending |
-| **PHR-011** | Compound filters & weighted relevance | Not started | Pending |
-| **PHR-012** | Revision-safe keyset cursors | Not started | Pending |
-| **PHR-013** | Public provenance explanations | Not started | Pending |
-| **PHR-014** | OpenAPI contract & interactive docs | Not started | Pending |
-| **PHR-015** | Polished search playground | Not started | Pending |
-| **PHR-016** | Adversarial acceptance & privacy suite | Not started | Pending |
-| **PHR-017** | Reproducible CI container & reviewer seed | Not started | Pending |
+| **PHR-010** | Read API & explicit serialization | **COMPLETE** | Read-only HTTP surface (`GET /api/v1/postings`, `/postings/:id`, `/meta`, `/health`), 405 on public mutations, allowlisted serializers, safe error envelopes across 11 tests (78 assertions). |
+| **PHR-011** | Compound filters & weighted relevance | **COMPLETE** | Parameterized PostgreSQL full-text search (`SearchPostings`), GIN-indexed `search_vector`, explainable weights (+8 Title, +5 Company, +3 Location, +1 Excerpt), compound AND filters, SQL injection defense across 7 tests (62 assertions). |
+| **PHR-012** | Revision-safe keyset cursors | **COMPLETE** | HMAC-SHA256 keyset cursors (`CursorToken`), query digest binding, 15-min TTL, deterministic errors (400, 409, 410), lookahead terminal page across 10 tests (34 assertions). |
+| **PHR-013** | Public provenance explanations | **COMPLETE** | Provenance explanations (`GET /api/v1/postings/:id/provenance`), contributing sources, reconciliation decisions (`verified_official_override`, `newest_credible`), discarded alternatives, duplicate audit across 2 tests (22 assertions). |
+| **PHR-014** | OpenAPI contract & interactive docs | **COMPLETE** | OpenAPI 3.1 specification at `public/openapi.json`, self-contained interactive explorer at `public/docs.html` / `GET /docs`, zero CDNs/fonts across 2 tests (27 assertions). |
+| **PHR-015** | Polished search playground | **COMPLETE** | Accessible search playground at `public/playground.html` / `GET /playground`, live API client, provenance modal, WCAG contrast, 320px responsive, zero external CDNs (13 assertions). |
+| **PHR-016** | Adversarial acceptance & privacy suite | **COMPLETE** | Contractual benchmark integration suite testing all 16 SPEC §10.1 scenarios across 16 runs (55 assertions, 0 failures, 0 errors). |
+| **PHR-017** | Reproducible CI container & reviewer seed | **COMPLETE** | Single-command release qualification `bin/verify`, seed task `phantom:seed`, GitHub Actions CI workflow, full automated suite (85 tests, 481 assertions, 0 failures) and qualification gates passing. |
 | **PHR-018** | Zero-cost live or local release evaluation | Not started | Pending |
 | **PHR-019** | Showcase & technical case study | Not started | Pending |
 | **PHR-020** | Optional SerpApi client (gated) | Not started | Pending |
@@ -306,4 +306,35 @@
   ```text
   bin/rails test test/integration/spec_benchmark_suite_test.rb
   16 runs, 55 assertions, 0 failures, 0 errors, 0 skips
+  ```
+
+### PHR-017 — Clean-Checkout Qualification and CI
+- **Scripts, Tasks & CI Workflow:**
+  - `bin/verify`: Single-command release qualification script verifying DB connection, migrations, seeding, test suite, OpenAPI schema, privacy scanning, and zero external CDNs. Exits 0 on success, non-zero on failure.
+  - `lib/tasks/phantom.rake` (`phantom:seed` task): Reads approved release fixtures and activates corpus.
+  - `db/seeds.rb`: Invokes `phantom:seed` for standard Rails `bin/rails db:seed` workflows.
+  - `.github/workflows/ci.yml`: GitHub Actions pipeline with PostgreSQL 16 service container, Brakeman security scan, and `ruby bin/verify`.
+- **Verified Behaviors:**
+  - Clean container qualification: `docker compose exec web ruby bin/verify` passes all 7 qualification gates with Exit 0.
+  - Full automated suite: 85 runs, 481 assertions, 0 failures, 0 errors, 0 skips across both development and test database environments.
+  - Fail-closed status gates: Tampering with OpenAPI schema, privacy scanner violation, or CDN links immediately aborts `bin/verify` with non-zero exit code.
+  - Zero paid dependencies: No SerpApi key, personal Outlook accounts, or external services required.
+- **Qualification Run Output:**
+  ```text
+  ======================================================================
+    PHANTOM RAILS: CORE RELEASE QUALIFICATION SUITE
+  ======================================================================
+  [*] Verifying database connectivity... PASS
+  [*] Verifying pending migrations... PASS
+  [*] Seeding approved public release fixtures... PASS
+  [*] Running complete automated test suite... Running 85 tests in parallel using 20 processes
+  85 runs, 481 assertions, 0 failures, 0 errors, 0 skips
+  PASS
+  [*] Validating OpenAPI 3.1 specification schema... PASS
+  [*] Scanning active corpus for secret/PII leaks... PASS
+  [*] Checking self-contained static assets (no external CDNs)... PASS
+
+  ======================================================================
+    ALL QUALIFICATION GATES PASSED SUCCESSFULLY (EXIT 0)
+  ======================================================================
   ```

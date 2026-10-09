@@ -2,7 +2,7 @@ module Api
   module V1
     class PostingsController < ApplicationController
       def index
-        result = SearchPostings.call(search_params)
+        result = ::SearchPostings.call(search_params)
 
         unless result.success?
           status = case result.error_code
@@ -20,7 +20,7 @@ module Api
         end
 
         render json: {
-          data: PostingSerializer.render_many(result.postings, scores: result.scores),
+          data: ::PostingSerializer.render_many(result.postings, scores: result.scores),
           page: {
             limit: result.limit,
             next_cursor: result.next_cursor,
@@ -34,30 +34,30 @@ module Api
       end
 
       def show
-        posting = CanonicalPosting.active_approved
-                                  .includes(source_mentions: :source_record)
-                                  .find_by(public_id: params[:id])
+        posting = ::CanonicalPosting.active_approved
+                                    .includes(source_mentions: :source_record)
+                                    .find_by(public_id: params[:id])
 
         if posting.nil?
           render_not_found and return
         end
 
         render json: {
-          data: PostingSerializer.render_one(posting)
+          data: ::PostingSerializer.render_one(posting)
         }
       end
 
       def provenance
-        posting = CanonicalPosting.active_approved
-                                  .includes(source_mentions: :source_record, field_selections: { source_revision: :source_mention })
-                                  .find_by(public_id: params[:id])
+        posting = ::CanonicalPosting.active_approved
+                                    .includes(source_mentions: :source_record, field_selections: { source_revision: :source_mention })
+                                    .find_by(public_id: params[:id])
 
         if posting.nil?
           render_not_found and return
         end
 
         render json: {
-          data: PostingSerializer.render_provenance(posting)
+          data: ::PostingSerializer.render_provenance(posting)
         }
       end
 

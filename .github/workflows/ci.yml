@@ -50,7 +50,7 @@ jobs:
         with:
           bundler-cache: true
 
-      - name: Run test suite
+      - name: Run test suite and qualification gates
         env:
           RAILS_ENV: test
           POSTGRES_HOST: localhost
@@ -59,4 +59,6 @@ jobs:
           POSTGRES_PASSWORD: postgres
           POSTGRES_TEST_DB: phantom_rails_test
           SECRET_KEY_BASE: test_secret_key_base_for_ci_pipeline_only
-        run: bin/rails db:test:prepare test
+        run: |
+          bin/rails db:test:prepare
+          ruby bin/verify

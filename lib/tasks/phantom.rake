@@ -69,4 +69,21 @@ namespace :phantom do
       )
     end
   end
+
+  desc "Seed approved public fixtures into active release projection"
+  task seed: :environment do
+    batch_file = Rails.root.join("fixtures", "public-approved", "approved-batch-v1.json")
+    manifest_file = Rails.root.join("fixtures", "public-approved", "approved-manifest-v1.json")
+
+    puts "Seeding approved corpus from #{batch_file}..."
+    res = ApprovedReleaseManager.publish_files!(batch_file, manifest_file)
+    if res.success
+      puts "Successfully seeded Approved Release #{res.approved_release.corpus_version} (Revision: #{res.corpus_revision})"
+      puts "Active Postings: #{res.postings_count}"
+    else
+      puts "Seed failed:"
+      res.errors.each { |e| puts "  - #{e}" }
+      exit 1
+    end
+  end
 end

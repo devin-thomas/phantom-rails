@@ -1,0 +1,79 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+# Phantom Rails Single-Command Release Qualification & Verification Script
+require_relative "../config/environment"
+
+puts "\n" + ("=" * 70)
+puts "  PHANTOM RAILS: CORE RELEASE QUALIFICATION SUITE"
+puts ("=" * 70) + "\n"
+
+def step(name)
+  print "[*] #{name}... "
+  $stdout.flush
+  yield
+  puts "PASS"
+rescue => e
+  puts "FAIL: #{e.message}"
+  raise
+end
+
+begin
+  step("Verifying database connectivity") do
+    ActiveRecord::Base.connection.execute("SELECT 1")
+  end
+
+  step("Verifying pending migrations") do
+    if ActiveRecord::MigrationContext.new(ActiveRecord::Tasks::DatabaseTasks.migrations_paths).needs_migration?
+      raise "Pending migrations exist! Run bin/rails db:migrate"
+    end
+  end
+
+  step("Seeding approved public release fixtures") do
+    batch_file = Rails.root.join("fixtures", "public-approved", "approved-batch-v1.json")
+    manifest_file = Rails.root.join("fixtures", "public-approved", "approved-manifest-v1.json")
+    res = ApprovedReleaseManager.publish_files!(batch_file, manifest_file)
+    raise "Seed failed: #{res.errors.join(', ')}" unless res.success
+  end
+
+  step("Running complete automated test suite") do
+    test_result = system("bin/rails test")
+    raise "Test suite failed!" unless test_result
+  end
+
+  step("Validating OpenAPI 3.1 specification schema") do
+    spec_path = Rails.root.join("public", "openapi.json")
+    raise "Missing public/openapi.json" unless File.exist?(spec_path)
+    spec = JSON.parse(File.read(spec_path))
+    raise "Invalid OpenAPI version" unless spec["openapi"] == "3.1.0"
+    raise "No paths defined" if spec["paths"].empty?
+  end
+
+  step("Scanning active corpus for secret/PII leaks") do
+    CanonicalPosting.active_approved.find_each do |p|
+      serialized = PostingSerializer.render_one(p).to_json
+      report = PrivacyScanner.scan_string(serialized)
+      raise "Privacy leak in posting #{p.public_id}: #{report.violations.inspect}" unless report.clean?
+    end
+  end
+
+  step("Checking self-contained static assets (no external CDNs)") do
+    docs_html = File.read(Rails.root.join("public", "docs.html"))
+    playground_html = File.read(Rails.root.join("public", "playground.html"))
+    [docs_html, playground_html].each do |html|
+      %w[jsdelivr.net unpkg.com cdnjs.cloudflare.com fonts.googleapis.com].each do |cdn|
+        raise "Found forbidden CDN #{cdn} in UI asset" if html.include?(cdn)
+      end
+    end
+  end
+
+  puts "\n" + ("=" * 70)
+  puts "  ALL QUALIFICATION GATES PASSED SUCCESSFULLY (EXIT 0)"
+  puts ("=" * 70) + "\n"
+  exit 0
+rescue => e
+  puts "\n" + ("!" * 70)
+  puts "  QUALIFICATION FAILED: #{e.message}"
+  puts ("!" * 70) + "\n"
+  exit 1
+end
