@@ -50,7 +50,7 @@ class CanonicalPosting < ApplicationRecord
   validates :first_observed_at, presence: true
 
   def approved_revisions
-    return source_revisions unless approved_release_id.present?
+    return source_revisions.none unless approved_release_id.present?
 
     source_revisions.joins(:approved_release_revisions)
                     .where(approved_release_revisions: { approved_release_id: approved_release_id })

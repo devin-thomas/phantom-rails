@@ -3,9 +3,9 @@ require "cgi"
 
 class PrivacyScanner
   EMAIL_REGEX = /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/
-  CANARY_REGEX = /\b(canary_[a-z0-9_]+|secret_[a-z0-9_]+|private_[a-z0-9_]+)\b/i
-  TOKEN_REGEX = /\b(bearer\s+[a-z0-9_\-\.]+|ghp_[a-z0-9]+|ey[a-z0-9_\-]{10,}\.[a-z0-9_\-]{10,})\b/i
-  HTML_TAG_REGEX = /<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>|<img\b[^>]*onerror/i
+  CANARY_REGEX = /\b(canary[-_][a-z0-9_\-]+|secret[-_][a-z0-9_\-]+|private[-_][a-z0-9_\-]+)\b/i
+  TOKEN_REGEX = /\b(bearer\s+[a-z0-9_\-\.]+|ghp_[a-z0-9]+|ey[a-z0-9_\-]{10,}\.[a-z0-9_\-]{10,}|AKIA[0-9A-Z]{16}|sk_(?:live|test)_[0-9a-zA-Z]{16,}|xox[baprs]-[0-9a-zA-Z]{10,})\b/i
+  HTML_TAG_REGEX = /<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>|<(?:img|svg|body|iframe|input)\b[^>]*on[a-z]+\s*=|javascript:/i
   SSN_REGEX = /\b\d{3}-\d{2}-\d{4}\b/
 
   ScanResult = Struct.new(:passed, :violations, keyword_init: true) do
@@ -49,21 +49,26 @@ class PrivacyScanner
     cleaned = cleaned.gsub(/[\u200B-\u200D\uFEFF\u2060]/, "")
     cleaned = cleaned.gsub(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/, "")
 
-    # 2. Iteratively decode HTML entities (up to 3 passes to handle nested encoding)
-    3.times do
+    # 2. Normalize Unicode compatibility forms (e.g. full-width characters)
+    begin
+      cleaned = cleaned.unicode_normalize(:nfkc)
+    rescue StandardError
+      # fallback on encoding error
+    end
+
+    # 3. Iteratively decode HTML entities and percent encoding (up to 4 passes)
+    4.times do
       prev = cleaned
       cleaned = CGI.unescapeHTML(cleaned)
       cleaned = cleaned.gsub(/&commat;/i, "@").gsub(/&period;/i, ".")
-      break if cleaned == prev
-    end
-
-    # 3. Decode percent-encoded components if present
-    if cleaned.include?("%")
-      begin
-        cleaned = URI.decode_www_form_component(cleaned)
-      rescue StandardError
-        # ignore percent decoding error
+      if cleaned.include?("%")
+        begin
+          cleaned = URI.decode_www_form_component(cleaned)
+        rescue StandardError
+          # ignore percent decoding error
+        end
       end
+      break if cleaned == prev
     end
 
     cleaned

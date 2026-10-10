@@ -508,6 +508,29 @@ Following independent QA Round 6 audit (`Phantom_Rails_QA_Round6_Stop_Ship.md`),
    - Brakeman security scan: **0 unsuppressed security warnings, 3 ignored SQL warnings**.
    - Single-command qualification `bin/verify`: **ALL 7 GATES PASS (EXIT 0)**.
 
+---
+
+## 8. Self-QA Comprehensive Audit & Adversarial Hardening (QA-SELF)
+
+Following Round 6 Stop-Ship remediation, an independent adversarial self-audit was conducted across the entire architecture, examining fail-open edge cases, publication quarantine bounds, mixed encodings, and credential patterns:
+
+1. **QA-SELF-01: Fail-Closed `CanonicalPosting#approved_revisions` for Unapproved Staging Records (P1):**
+   - **Finding:** If `approved_release_id` was nil, `approved_revisions` previously fell back to returning all `source_revisions`.
+   - **Remediation:** Changed `CanonicalPosting#approved_revisions` to strictly return `source_revisions.none` when `approved_release_id` is absent, guaranteeing that unapproved staging records have zero approved revisions under all access patterns.
+2. **QA-SELF-02: Model-Layer Deny-by-Default Publication Quarantine in `ApprovedRelease#activate!` (P1):**
+   - **Finding:** Publication quarantine was checked at the service layer (`ApprovedReleaseManager#publish!`), but direct model invocations of `ApprovedRelease#activate!` in non-test environments lacked mandatory quarantine enforcement.
+   - **Remediation:** Added `ENV["PHANTOM_PUBLISH_ALLOW"] == "true"` validation directly into `ApprovedRelease#activate!`, preventing activation via console, rake, or background tasks without explicit authorization.
+3. **QA-SELF-03: Unicode NFKC Normalization & Multi-Pass Decoding in PrivacyScanner and Sanitizer (P1):**
+   - **Finding:** Single-pass percent-decoding or unescaping before percent-decoding allowed complex mixed encodings (`%26%2364%3B`, `%2540`, full-width `\uFF20`) to bypass raw scans.
+   - **Remediation:** Implemented Unicode compatibility normalization (`unicode_normalize(:nfkc)`) and integrated multi-pass (up to 4 passes) entity and percent-decoding across `PrivacyScanner.canonicalize_text` and `Sanitizer.clean_text` / `Sanitizer.clean_url`.
+4. **QA-SELF-04: Expanded Token, Canary, and Executable Event Handler Detection (P2):**
+   - **Finding:** Canaries with hyphens (`canary-token`), AWS access keys (`AKIA...`), Stripe keys (`sk_live_...`), Slack tokens (`xoxb-...`), and event handlers on SVG/iframe elements were not covered by base regex patterns.
+   - **Remediation:** Expanded `CANARY_REGEX`, `TOKEN_REGEX`, and `HTML_TAG_REGEX` to detect hyphenated canaries, major cloud credentials, and inline event handlers across all HTML tag types (`<svg onload=...>`, `<iframe onfocus=...>`, `javascript:` URIs).
+5. **QA-SELF-05: Pre-Activation Scanning on `/meta` Projection (P2):**
+   - **Finding:** Pre-activation projection scanning covered `PostingSerializer` and `ProvenanceSerializer`, but did not include `/meta` before calling `activate!`.
+   - **Remediation:** Added pre-activation scan of `/meta` summary JSON payload in `ApprovedReleaseManager#publish!`.
+
+
 
 
 

@@ -14,6 +14,11 @@ class ApprovedRelease < ApplicationRecord
   validates :corpus_version, presence: true
 
   def activate!
+    # QA6-001: Application-level deny-by-default publication quarantine gate
+    if ENV["PHANTOM_PUBLISH_ALLOW"] != "true" && !Rails.env.test?
+      raise "Publication quarantined: explicit authorization PHANTOM_PUBLISH_ALLOW=true is required to activate public releases"
+    end
+
     # QA4-07: Strictly reject activation for releases with no explicit snapshot membership
     if approved_release_revisions.empty?
       raise "Release activation rejected: release #{corpus_version} has zero approved_release_revisions memberships"

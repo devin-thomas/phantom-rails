@@ -117,6 +117,17 @@ class ApprovedReleaseManager
         end
       end
 
+      # Pre-activation scan on meta summary projection
+      meta_projection = {
+        corpus_version: release.corpus_version,
+        active_approved_postings: postings.count,
+        origin_class_counts: release.origin_class_counts
+      }.to_json
+      meta_scan = PrivacyScanner.scan_string(meta_projection)
+      unless meta_scan.clean?
+        raise "Pre-activation privacy gate failed on meta projection: #{meta_scan.violations.map { |v| v[:type] }.join(', ')}"
+      end
+
       # Activate this release (atomically deactivating previous)
       release.activate!
 

@@ -34,10 +34,15 @@ class Sanitizer
         next if %w[contact email user applicant candidate author secret bearer token auth session].any? { |bad| lower_k.include?(bad) }
 
         clean_values = values.map do |val|
-          decoded = begin
-            CGI.unescape(val)
-          rescue StandardError
-            val
+          decoded = val.to_s
+          3.times do
+            prev = decoded
+            decoded = begin
+              CGI.unescape(decoded)
+            rescue StandardError
+              decoded
+            end
+            break if decoded == prev
           end
 
           # Drop parameter if decoded value contains email, canary, token, or SSN
@@ -71,7 +76,13 @@ class Sanitizer
     cleaned = cleaned.gsub(/[\u200B-\u200D\uFEFF\u2060]/, "")
     cleaned = cleaned.gsub(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/, "")
 
-    # 2. Iteratively decode HTML entities (up to 3 passes to handle nested encoding)
+    # 2. Normalize Unicode compatibility forms (e.g. full-width characters)
+    begin
+      cleaned = cleaned.unicode_normalize(:nfkc)
+    rescue StandardError
+    end
+
+    # 3. Iteratively decode HTML entities (up to 3 passes to handle nested encoding)
     3.times do
       prev = cleaned
       cleaned = CGI.unescapeHTML(cleaned)
@@ -79,7 +90,7 @@ class Sanitizer
       break if cleaned == prev
     end
 
-    # 3. Strip HTML tags AFTER unescaping entities, so encoded <script> tags are caught and removed
+    # 4. Strip HTML tags AFTER unescaping entities, so encoded tags are caught and removed
     cleaned = cleaned.gsub(/<[^>]*>/, " ")
 
     # 4. Normalize whitespaces

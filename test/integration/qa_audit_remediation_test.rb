@@ -2208,4 +2208,130 @@ class QaAuditRemediationTest < ActionDispatch::IntegrationTest
                                            posting_b_id: [m1.canonical_posting_id, m2.canonical_posting_id]).exists?
     assert dupe_exists, "Must flag unverified shared platform key as potential duplicate"
   end
+
+  # ==========================================================================
+  # Self-QA Independent Audit Tests (QA-SELF-01 through QA-SELF-05)
+  # ==========================================================================
+
+  test "Self-QA 01: CanonicalPosting#approved_revisions returns empty relation (none) when approved_release_id is nil" do
+    rec = SourceRecord.create!(source_system: "ats", source_record_key: "rec-self-01", origin_class: "sanitized_historical")
+    sm = SourceMention.create!(source_record: rec, mention_key: "m1", source_kind: "official_employer")
+    rev = sm.source_revisions.create!(revision_digest: "d-self-01", observed_at: Time.now.utc, title: "Title", company: "Company", location: "Loc")
+    posting = CanonicalPosting.create!(
+      approved_release_id: nil,
+      title: "Title",
+      company: "Company",
+      location: "Loc",
+      first_observed_at: Time.now.utc,
+      last_observed_at: Time.now.utc
+    )
+    sm.update!(canonical_posting: posting)
+
+    assert_nil posting.approved_release_id
+    assert_equal 1, posting.source_revisions.count
+    # Fail-closed invariant: approved_revisions MUST NOT return unapproved staging revisions
+    assert_equal 0, posting.approved_revisions.count
+    assert_empty posting.approved_revisions
+  end
+
+  test "Self-QA 02: ApprovedRelease#activate! strictly enforces publication quarantine in non-test environment" do
+    rel = ApprovedRelease.create!(
+      manifest_digest: "d-self-02",
+      approval_signature: "d-self-02",
+      approved_by: "auditor",
+      approved_at: Time.now.utc,
+      corpus_version: "2026.self.02"
+    )
+    rec = SourceRecord.create!(source_system: "ats", source_record_key: "rec-self-02", origin_class: "sanitized_historical")
+    sm = SourceMention.create!(source_record: rec, mention_key: "m1", source_kind: "official_employer")
+    rev = sm.source_revisions.create!(revision_digest: "d-self-02-rev", observed_at: Time.now.utc, title: "Title", company: "Company", location: "Loc")
+    rel.approved_release_revisions.create!(source_revision: rev, snapshot_source_domain: "example.com")
+
+    begin
+      orig_env = Rails.env
+      Rails.env = ActiveSupport::StringInquirer.new("production")
+      orig_allow = ENV["PHANTOM_PUBLISH_ALLOW"]
+      ENV.delete("PHANTOM_PUBLISH_ALLOW")
+
+      err = assert_raises(RuntimeError) do
+        rel.activate!
+      end
+      assert_includes err.message, "Publication quarantined"
+
+      ENV["PHANTOM_PUBLISH_ALLOW"] = "true"
+      # Quarantine lifted: should succeed
+      rel.activate!
+      assert rel.reload.active?
+    ensure
+      Rails.env = orig_env
+      ENV["PHANTOM_PUBLISH_ALLOW"] = orig_allow
+    end
+  end
+
+  test "Self-QA 03: PrivacyScanner and Sanitizer catch mixed percent/entity encodings, double-encoding, and full-width Unicode" do
+    # 1. Double percent-encoding (%2540 -> %40 -> @)
+    double_encoded = "Reach us at contact%2540example.com"
+    scan1 = PrivacyScanner.scan_string(double_encoded)
+    assert_not scan1.clean?, "Must detect double-percent encoded email (%2540)"
+    assert scan1.violations.any? { |v| v[:type].include?("email") }
+
+    # 2. Mixed entity inside percent encoding (%26%2364%3B -> &#64; -> @)
+    mixed_encoded = "Reach us at qa6%26%2364%3Bexample%26%2346%3Bcom"
+    scan2 = PrivacyScanner.scan_string(mixed_encoded)
+    assert_not scan2.clean?, "Must detect mixed percent-entity encoded email"
+    assert scan2.violations.any? { |v| v[:type].include?("email") }
+
+    # 3. Unicode full-width characters (user＠example．com)
+    fullwidth = "user\uFF20example\uFF0Ecom"
+    scan3 = PrivacyScanner.scan_string(fullwidth)
+    assert_not scan3.clean?, "Must detect full-width Unicode email"
+    assert scan3.violations.any? { |v| v[:type].include?("email") }
+
+    # 4. Sanitizer clean_text normalizes fullwidth Unicode and strips tags
+    dirty_text = "Senior Developer \uFF20 Acme <svg onload=alert(1)>"
+    cleaned = Sanitizer.clean_text(dirty_text)
+    assert_equal "Senior Developer @ Acme", cleaned
+  end
+
+  test "Self-QA 04: PrivacyScanner catches hyphenated canaries, cloud/API tokens, and executable event handlers" do
+    # Hyphenated canaries
+    scan_canary = PrivacyScanner.scan_string("Text with canary-private-auth-token embedded")
+    assert_not scan_canary.clean?, "Must catch hyphenated canary token"
+
+    # AWS Access Key
+    aws_sample = ["AKIA", "IOSFODNN7EXAMPLE"].join
+    scan_aws = PrivacyScanner.scan_string("Config #{aws_sample} credentials")
+    assert_not scan_aws.clean?, "Must catch AWS Access Key"
+
+    # Stripe Live Key
+    stripe_sample = ["sk", "live", "51Abcdefghijklmnopqrstuvwxy1234"].join("_")
+    scan_stripe = PrivacyScanner.scan_string("Key #{stripe_sample}")
+    assert_not scan_stripe.clean?, "Must catch Stripe live key"
+
+    # Slack token
+    slack_sample = ["xoxb", "1234567890", "abcdefghijklmn"].join("-")
+    scan_slack = PrivacyScanner.scan_string("Token #{slack_sample}")
+    assert_not scan_slack.clean?, "Must catch Slack bot token"
+
+    # Inline event handlers on svg and iframe
+    scan_svg = PrivacyScanner.scan_string("<svg onload=alert(1)>")
+    assert_not scan_svg.clean?, "Must catch svg onload"
+
+    scan_iframe = PrivacyScanner.scan_string("<iframe onfocus=alert(1)>")
+    assert_not scan_iframe.clean?, "Must catch iframe onfocus"
+
+    scan_js_url = PrivacyScanner.scan_string("javascript:alert(1)")
+    assert_not scan_js_url.clean?, "Must catch javascript: URI"
+  end
+
+  test "Self-QA 05: Sanitizer clean_url strips multi-pass percent-encoded PII in non-blocklisted query parameters" do
+    # Permitted query param 'ref' containing double-encoded email
+    dirty_url = "https://jobs.example.com/posting/101?ref=applicant%2540private.org&page=1"
+    cleaned_url = Sanitizer.clean_url(dirty_url)
+
+    assert_not_nil cleaned_url
+    assert_no_match(/applicant/, cleaned_url)
+    assert_no_match(/private\.org/, cleaned_url)
+    assert_includes cleaned_url, "page=1"
+  end
 end
