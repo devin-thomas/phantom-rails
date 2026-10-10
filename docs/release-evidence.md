@@ -529,6 +529,12 @@ Following Round 6 Stop-Ship remediation, an independent adversarial self-audit w
 5. **QA-SELF-05: Pre-Activation Scanning on `/meta` Projection (P2):**
    - **Finding:** Pre-activation projection scanning covered `PostingSerializer` and `ProvenanceSerializer`, but did not include `/meta` before calling `activate!`.
    - **Remediation:** Added pre-activation scan of `/meta` summary JSON payload in `ApprovedReleaseManager#publish!`.
+6. **Self-QA Verification Totals & CI Evidence:**
+   - Audited commit SHA: [`fbb67280fe52261ea15513d7890b0ec83ec3b9c7`](https://github.com/devin-thomas/phantom-rails/commit/fbb67280fe52261ea15513d7890b0ec83ec3b9c7)
+   - GitHub Actions CI run: [#38008541936](https://github.com/devin-thomas/phantom-rails/actions/runs/38008541936) (status: SUCCESS in both scan and test jobs)
+   - Automated test suite: **125 runs, 800 assertions, 0 failures, 0 errors, 0 skips**.
+   - Brakeman security scan: **0 unsuppressed security warnings, 3 ignored SQL warnings**.
+   - Single-command qualification `bin/verify`: **ALL 7 GATES PASS (EXIT 0)**.
 
 
 
